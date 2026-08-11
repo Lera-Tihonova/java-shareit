@@ -2,11 +2,11 @@ package ru.practicum.shareit.item;
 
 public class ItemMapper {
 
-    public static ItemDto toItemDto(Item item) {
+    public static ItemResponseDto toItemResponseDto(Item item) {
         if (item == null) {
             return null;
         }
-        return new ItemDto(
+        return new ItemResponseDto(
                 item.getId(),
                 item.getName(),
                 item.getDescription(),
@@ -15,17 +15,25 @@ public class ItemMapper {
         );
     }
 
-    public static Item toItem(ItemDto itemDto) {
-        if (itemDto == null) {
+    public static Item toItem(ItemCreateDto itemCreateDto) {
+        if (itemCreateDto == null) {
             return null;
         }
-        return new Item(
-                itemDto.getId(),
-                itemDto.getName(),
-                itemDto.getDescription(),
-                itemDto.getAvailable(),
-                null,
-                null
-        );
+        Item item = new Item();
+        item.setName(itemCreateDto.getName());
+        item.setDescription(itemCreateDto.getDescription());
+        item.setAvailable(itemCreateDto.getAvailable());
+        return item;
+    }
+
+    public static Item toItem(ItemUpdateDto itemUpdateDto) {
+        if (itemUpdateDto == null) {
+            return null;
+        }
+        Item item = new Item();
+        item.setName(itemUpdateDto.getName());
+        item.setDescription(itemUpdateDto.getDescription());
+        item.setAvailable(itemUpdateDto.getAvailable());
+        return item;
     }
 }

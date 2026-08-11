@@ -6,36 +6,40 @@ import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
-import java.util.Map;
-import java.util.stream.Collectors;
-
 @RestControllerAdvice
 public class ErrorHandler {
 
     @ExceptionHandler(NotFoundException.class)
     @ResponseStatus(HttpStatus.NOT_FOUND)
-    public Map<String, String> handleNotFound(NotFoundException e) {
-        return Map.of("error", e.getMessage());
+    public ErrorResponse handleNotFound(NotFoundException e) {
+        return new ErrorResponse("Not Found", e.getMessage());
     }
 
     @ExceptionHandler(DuplicateEmailException.class)
     @ResponseStatus(HttpStatus.CONFLICT)
-    public Map<String, String> handleDuplicateEmail(DuplicateEmailException e) {
-        return Map.of("error", e.getMessage());
+    public ErrorResponse handleDuplicateEmail(DuplicateEmailException e) {
+        return new ErrorResponse("Conflict", e.getMessage());
     }
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Map<String, String> handleValidation(MethodArgumentNotValidException e) {
-        String errors = e.getBindingResult().getFieldErrors().stream()
+    public ErrorResponse handleValidation(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getFieldErrors().stream()
                 .map(error -> error.getField() + ": " + error.getDefaultMessage())
-                .collect(Collectors.joining(", "));
-        return Map.of("error", errors);
+                .findFirst()
+                .orElse("Validation error");
+        return new ErrorResponse("Bad Request", message);
     }
 
-    @ExceptionHandler(Exception.class)
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleIllegalArgument(IllegalArgumentException e) {
+        return new ErrorResponse("Bad Request", e.getMessage());
+    }
+
+    @ExceptionHandler(RuntimeException.class)
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public Map<String, String> handleAnyException(Exception e) {
-        return Map.of("error", "Произошла непредвиденная ошибка: " + e.getMessage());
+    public ErrorResponse handleRuntimeException(RuntimeException e) {
+        return new ErrorResponse("Internal Server Error", "Произошла непредвиденная ошибка: " + e.getMessage());
     }
 }

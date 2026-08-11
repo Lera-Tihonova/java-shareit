@@ -18,7 +18,9 @@ public class UserService {
     }
 
     public UserDto findById(Long id) {
-        return UserMapper.toUserDto(userRepository.findById(id));
+        return userRepository.findById(id)
+                .map(UserMapper::toUserDto)
+                .orElseThrow(() -> new RuntimeException("Пользователь с id " + id + " не найден"));
     }
 
     public UserDto create(UserDto userDto) {

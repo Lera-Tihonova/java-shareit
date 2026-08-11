@@ -15,45 +15,53 @@ public class ItemService {
     private final ItemRepository itemRepository;
     private final UserRepository userRepository;
 
-    public List<ItemDto> findByOwner(Long userId) {
-        userRepository.findById(userId);
+    public List<ItemResponseDto> findByOwner(Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
         return itemRepository.findByOwner(userId).stream()
-                .map(ItemMapper::toItemDto)
+                .map(ItemMapper::toItemResponseDto)
                 .collect(Collectors.toList());
     }
 
-    public ItemDto findById(Long id, Long userId) {
-        userRepository.findById(userId);
-        return ItemMapper.toItemDto(itemRepository.findById(id));
+    public ItemResponseDto findById(Long id, Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+        return itemRepository.findById(id)
+                .map(ItemMapper::toItemResponseDto)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + id + " не найдена"));
     }
 
-    public ItemDto create(ItemDto itemDto, Long userId) {
-        User owner = userRepository.findById(userId);
-        Item item = ItemMapper.toItem(itemDto);
+    public ItemResponseDto create(ItemCreateDto itemCreateDto, Long userId) {
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+        Item item = ItemMapper.toItem(itemCreateDto);
         item.setOwner(owner);
         Item createdItem = itemRepository.create(item);
-        return ItemMapper.toItemDto(createdItem);
+        return ItemMapper.toItemResponseDto(createdItem);
     }
 
-    public ItemDto update(Long itemId, ItemDto itemDto, Long userId) {
-        userRepository.findById(userId);
+    public ItemResponseDto update(Long itemId, ItemUpdateDto itemUpdateDto, Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
 
-        Item existingItem = itemRepository.findById(itemId);
+        Item existingItem = itemRepository.findById(itemId)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + itemId + " не найдена"));
 
         if (!existingItem.getOwner().getId().equals(userId)) {
             throw new NotFoundException("Пользователь не является владельцем вещи");
         }
 
-        Item updatedItem = ItemMapper.toItem(itemDto);
+        Item updatedItem = ItemMapper.toItem(itemUpdateDto);
+        updatedItem.setId(existingItem.getId());
         updatedItem.setOwner(existingItem.getOwner());
         updatedItem.setRequest(existingItem.getRequest());
         Item result = itemRepository.update(itemId, updatedItem);
-        return ItemMapper.toItemDto(result);
+        return ItemMapper.toItemResponseDto(result);
     }
 
-    public List<ItemDto> search(String text) {
+    public List<ItemResponseDto> search(String text) {
         return itemRepository.search(text).stream()
-                .map(ItemMapper::toItemDto)
+                .map(ItemMapper::toItemResponseDto)
                 .collect(Collectors.toList());
     }
 }

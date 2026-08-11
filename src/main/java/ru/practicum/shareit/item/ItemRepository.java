@@ -3,10 +3,7 @@ package ru.practicum.shareit.item;
 import org.springframework.stereotype.Repository;
 import ru.practicum.shareit.exception.NotFoundException;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 import java.util.stream.Collectors;
 
 @Repository
@@ -24,12 +21,8 @@ public class ItemRepository {
                 .collect(Collectors.toList());
     }
 
-    public Item findById(Long id) {
-        Item item = items.get(id);
-        if (item == null) {
-            throw new NotFoundException("Вещь с id " + id + " не найдена");
-        }
-        return item;
+    public Optional<Item> findById(Long id) {
+        return Optional.ofNullable(items.get(id));
     }
 
     public Item create(Item item) {
@@ -39,7 +32,8 @@ public class ItemRepository {
     }
 
     public Item update(Long id, Item updatedItem) {
-        Item existingItem = findById(id);
+        Item existingItem = findById(id)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + id + " не найдена"));
 
         if (updatedItem.getName() != null) {
             existingItem.setName(updatedItem.getName());

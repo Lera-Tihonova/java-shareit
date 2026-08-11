@@ -4,10 +4,7 @@ import org.springframework.stereotype.Repository;
 import ru.practicum.shareit.exception.DuplicateEmailException;
 import ru.practicum.shareit.exception.NotFoundException;
 
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Repository
 public class UserRepository {
@@ -18,12 +15,8 @@ public class UserRepository {
         return new ArrayList<>(users.values());
     }
 
-    public User findById(Long id) {
-        User user = users.get(id);
-        if (user == null) {
-            throw new NotFoundException("Пользователь с id " + id + " не найден");
-        }
-        return user;
+    public Optional<User> findById(Long id) {
+        return Optional.ofNullable(users.get(id));
     }
 
     public User create(User user) {
@@ -36,7 +29,8 @@ public class UserRepository {
     }
 
     public User update(Long id, User updatedUser) {
-        User existingUser = findById(id);
+        User existingUser = findById(id)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + id + " не найден"));
 
         if (updatedUser.getEmail() != null && !updatedUser.getEmail().equals(existingUser.getEmail())) {
             if (isEmailExists(updatedUser.getEmail())) {

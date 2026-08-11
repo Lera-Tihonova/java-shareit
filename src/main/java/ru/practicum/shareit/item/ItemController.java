@@ -14,12 +14,12 @@ public class ItemController {
     private final ItemService itemService;
 
     @GetMapping
-    public List<ItemDto> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
+    public List<ItemResponseDto> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
         return itemService.findByOwner(userId);
     }
 
     @GetMapping("/{itemId}")
-    public ItemDto findById(
+    public ItemResponseDto findById(
             @PathVariable Long itemId,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
@@ -28,24 +28,27 @@ public class ItemController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public ItemDto create(
-            @Valid @RequestBody ItemDto itemDto,
+    public ItemResponseDto create(
+            @Valid @RequestBody ItemCreateDto itemCreateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
-        return itemService.create(itemDto, userId);
+        return itemService.create(itemCreateDto, userId);
     }
 
     @PatchMapping("/{itemId}")
-    public ItemDto update(
+    public ItemResponseDto update(
             @PathVariable Long itemId,
-            @RequestBody ItemDto itemDto,
+            @RequestBody ItemUpdateDto itemUpdateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
-        return itemService.update(itemId, itemDto, userId);
+        return itemService.update(itemId, itemUpdateDto, userId);
     }
 
     @GetMapping("/search")
-    public List<ItemDto> search(@RequestParam String text) {
+    public List<ItemResponseDto> search(@RequestParam(required = false) String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
         return itemService.search(text);
     }
 }

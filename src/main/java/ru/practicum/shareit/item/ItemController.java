@@ -4,6 +4,8 @@ import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.item.comment.CommentCreateDto;
+import ru.practicum.shareit.item.comment.CommentResponseDto;
 
 import java.util.List;
 
@@ -14,12 +16,12 @@ public class ItemController {
     private final ItemService itemService;
 
     @GetMapping
-    public List<ItemResponseDto> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
+    public List<ItemResponseWithBookingDto> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
         return itemService.findByOwner(userId);
     }
 
     @GetMapping("/{itemId}")
-    public ItemResponseDto findById(
+    public ItemResponseWithBookingDto findById(
             @PathVariable Long itemId,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
@@ -50,5 +52,15 @@ public class ItemController {
             return List.of();
         }
         return itemService.search(text);
+    }
+
+    @PostMapping("/{itemId}/comment")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CommentResponseDto addComment(
+            @PathVariable Long itemId,
+            @Valid @RequestBody CommentCreateDto commentCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.addComment(itemId, userId, commentCreateDto);
     }
 }

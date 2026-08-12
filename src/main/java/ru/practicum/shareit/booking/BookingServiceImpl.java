@@ -58,12 +58,14 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public BookingResponseDto approve(Long bookingId, Long userId, Boolean approved) {
+        // Проверяем существование пользователя
         userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
 
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
+        // Проверка: только владелец вещи может подтвердить/отклонить
         if (!booking.getItem().getOwner().getId().equals(userId)) {
             throw new NotFoundException("Только владелец вещи может подтвердить или отклонить бронирование");
         }

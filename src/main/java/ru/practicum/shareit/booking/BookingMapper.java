@@ -26,10 +26,8 @@ public class BookingMapper {
                 booking.getId(),
                 booking.getStart(),
                 booking.getEnd(),
-                booking.getItem().getId(),
-                booking.getItem().getName(),
-                booking.getBooker().getId(),
-                booking.getBooker().getName(),
+                booking.getItem(),
+                booking.getBooker(),
                 booking.getStatus()
         );
     }

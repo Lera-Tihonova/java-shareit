@@ -106,13 +106,15 @@ public class ItemService {
     private ItemResponseWithBookingDto toItemResponseWithBookingDto(Item item, Long userId) {
         LocalDateTime now = LocalDateTime.now();
 
-        List<Booking> lastBookings = bookingRepository.findLastBooking(item.getId(), now);
-        List<Booking> nextBookings = bookingRepository.findNextBooking(item.getId(), now);
+        BookingShortDto lastBooking = null;
+        BookingShortDto nextBooking = null;
 
-        BookingShortDto lastBooking = lastBookings.isEmpty() ? null :
-                BookingMapper.toBookingShortDto(lastBookings.get(0));
-        BookingShortDto nextBooking = nextBookings.isEmpty() ? null :
-                BookingMapper.toBookingShortDto(nextBookings.get(0));
+        if (item.getOwner().getId().equals(userId)) {
+            List<Booking> lastBookings = bookingRepository.findLastBooking(item.getId(), now);
+            List<Booking> nextBookings = bookingRepository.findNextBooking(item.getId(), now);
+            lastBooking = lastBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(lastBookings.get(0));
+            nextBooking = nextBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(nextBookings.get(0));
+        }
 
         List<CommentResponseDto> comments = commentRepository.findByItemId(item.getId()).stream()
                 .map(CommentMapper::toCommentResponseDto)

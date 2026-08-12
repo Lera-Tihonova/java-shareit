@@ -2,6 +2,7 @@ package ru.practicum.shareit.exception;
 
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
@@ -35,6 +36,12 @@ public class ErrorHandler {
                 .findFirst()
                 .orElse("Validation error");
         return new ErrorResponse("Bad Request", message);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleMissingHeader(MissingRequestHeaderException e) {
+        return new ErrorResponse("Bad Request", "Отсутствует обязательный заголовок: " + e.getHeaderName());
     }
 
     @ExceptionHandler(IllegalArgumentException.class)

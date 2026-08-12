@@ -49,9 +49,6 @@ public class ItemRepository {
     }
 
     public List<Item> search(String text) {
-        if (text == null || text.isBlank()) {
-            return new ArrayList<>();
-        }
         String lowerText = text.toLowerCase();
         return items.values().stream()
                 .filter(item -> item.getAvailable() != null && item.getAvailable())

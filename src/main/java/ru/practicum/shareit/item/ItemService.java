@@ -51,10 +51,7 @@ public class ItemService {
             throw new NotFoundException("Пользователь не является владельцем вещи");
         }
 
-        Item updatedItem = ItemMapper.toItem(itemUpdateDto);
-        updatedItem.setId(existingItem.getId());
-        updatedItem.setOwner(existingItem.getOwner());
-        updatedItem.setRequest(existingItem.getRequest());
+        Item updatedItem = ItemMapper.updateItem(existingItem, itemUpdateDto);
         Item result = itemRepository.update(itemId, updatedItem);
         return ItemMapper.toItemResponseDto(result);
     }

@@ -17,12 +17,5 @@ public class Booking {
     private LocalDateTime end;
     private Item item;
     private User booker;
-    private Status status;
-
-    public enum Status {
-        WAITING,
-        APPROVED,
-        REJECTED,
-        CANCELED
-    }
+    private BookingStatus status;
 }

@@ -65,7 +65,7 @@ public class BookingServiceImpl implements BookingService {
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
         if (!booking.getItem().getOwner().getId().equals(userId)) {
-            throw new NotFoundException("Только владелец вещи может подтвердить или отклонить бронирование");
+            throw new ValidationException("Только владелец вещи может подтвердить или отклонить бронирование");
         }
 
         if (booking.getStatus() != BookingStatus.WAITING) {

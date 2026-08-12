@@ -4,7 +4,6 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Sort;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import ru.practicum.shareit.exception.ForbiddenException;
 import ru.practicum.shareit.exception.NotFoundException;
 import ru.practicum.shareit.exception.ValidationException;
 import ru.practicum.shareit.item.Item;
@@ -66,7 +65,7 @@ public class BookingServiceImpl implements BookingService {
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
         if (!booking.getItem().getOwner().getId().equals(userId)) {
-            throw new ForbiddenException("Только владелец вещи может подтвердить или отклонить бронирование");
+            throw new NotFoundException("Только владелец вещи может подтвердить или отклонить бронирование");
         }
 
         if (booking.getStatus() != BookingStatus.WAITING) {

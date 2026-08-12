@@ -32,23 +32,21 @@ public class BookingServiceImpl implements BookingService {
         Item item = itemRepository.findById(bookingCreateDto.getItemId())
                 .orElseThrow(() -> new NotFoundException("Вещь с id " + bookingCreateDto.getItemId() + " не найдена"));
 
-        // Проверка: нельзя бронировать свою вещь
         if (item.getOwner().getId().equals(userId)) {
             throw new NotFoundException("Владелец не может бронировать свою вещь");
         }
 
-        // Проверка: вещь должна быть доступна
         if (!item.getAvailable()) {
             throw new ValidationException("Вещь недоступна для бронирования");
         }
 
-        // Проверка дат
         if (bookingCreateDto.getStart().isAfter(bookingCreateDto.getEnd()) ||
                 bookingCreateDto.getStart().equals(bookingCreateDto.getEnd())) {
             throw new ValidationException("Дата начала должна быть раньше даты окончания");
         }
 
-        if (bookingCreateDto.getStart().isBefore(LocalDateTime.now())) {
+        LocalDateTime now = LocalDateTime.now();
+        if (bookingCreateDto.getStart().isBefore(now.minusSeconds(5))) {
             throw new ValidationException("Дата начала не может быть в прошлом");
         }
 
@@ -66,17 +64,14 @@ public class BookingServiceImpl implements BookingService {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
-        // Проверка: только владелец вещи может подтвердить/отклонить
         if (!booking.getItem().getOwner().getId().equals(userId)) {
             throw new NotFoundException("Только владелец вещи может подтвердить или отклонить бронирование");
         }
 
-        // Проверка: статус должен быть WAITING
         if (booking.getStatus() != BookingStatus.WAITING) {
             throw new ValidationException("Бронирование уже обработано");
         }
 
-        // Проверка: дата начала не должна быть в прошлом
         if (booking.getStart().isBefore(LocalDateTime.now())) {
             throw new ValidationException("Нельзя изменить статус бронирования с прошедшей датой начала");
         }
@@ -94,7 +89,6 @@ public class BookingServiceImpl implements BookingService {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
-        // Проверка: доступ только для автора бронирования или владельца вещи
         if (!booking.getBooker().getId().equals(userId) &&
                 !booking.getItem().getOwner().getId().equals(userId)) {
             throw new NotFoundException("У вас нет прав на просмотр этого бронирования");

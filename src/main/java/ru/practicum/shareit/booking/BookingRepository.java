@@ -52,6 +52,10 @@ public interface BookingRepository extends JpaRepository<Booking, Long> {
     // Поиск бронирований по вещи
     List<Booking> findByItemId(Long itemId);
 
+    // Поиск бронирований по списку вещей (для решения N+1)
+    @Query("SELECT b FROM Booking b WHERE b.item.id IN :itemIds")
+    List<Booking> findAllByItemIds(@Param("itemIds") List<Long> itemIds);
+
     // Поиск последнего завершенного бронирования
     @Query("SELECT b FROM Booking b WHERE b.item.id = :itemId AND b.status = 'APPROVED' AND b.end < :now ORDER BY b.end DESC")
     List<Booking> findLastBooking(@Param("itemId") Long itemId, @Param("now") LocalDateTime now);

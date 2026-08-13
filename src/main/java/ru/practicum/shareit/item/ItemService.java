@@ -27,6 +27,7 @@ public class ItemService {
     private final BookingRepository bookingRepository;
     private final CommentRepository commentRepository;
 
+    @Transactional(readOnly = true)
     public List<ItemResponseWithBookingDto> findByOwner(Long userId) {
         userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
@@ -76,6 +77,7 @@ public class ItemService {
                 .collect(Collectors.toList());
     }
 
+    @Transactional(readOnly = true)
     public ItemResponseWithBookingDto findById(Long id, Long userId) {
         userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));

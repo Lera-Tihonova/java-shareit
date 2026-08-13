@@ -33,23 +33,19 @@ public class BookingServiceImpl implements BookingService {
         Item item = itemRepository.findById(bookingCreateDto.getItemId())
                 .orElseThrow(() -> new NotFoundException("Вещь с id " + bookingCreateDto.getItemId() + " не найдена"));
 
-        // Проверка: нельзя бронировать свою вещь
         if (item.getOwner().getId().equals(userId)) {
             throw new NotFoundException("Владелец не может бронировать свою вещь");
         }
 
-        // Проверка: вещь должна быть доступна
         if (!item.getAvailable()) {
             throw new ValidationException("Вещь недоступна для бронирования");
         }
 
-        // Проверка дат
         if (bookingCreateDto.getStart().isAfter(bookingCreateDto.getEnd()) ||
                 bookingCreateDto.getStart().equals(bookingCreateDto.getEnd())) {
             throw new ValidationException("Дата начала должна быть раньше даты окончания");
         }
 
-        // Проверка: дата начала не должна быть в прошлом
         LocalDateTime now = LocalDateTime.now();
         if (bookingCreateDto.getStart().isBefore(now.minusSeconds(5))) {
             throw new ValidationException("Дата начала не может быть в прошлом");
@@ -75,12 +71,13 @@ public class BookingServiceImpl implements BookingService {
     @Override
     @Transactional
     public BookingResponseDto approve(Long bookingId, Long userId, Boolean approved) {
-        // Проверка пользователя УБРАНА по замечанию ревьюера
+        // Проверка существования пользователя
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
 
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
-        // Проверка: только владелец вещи может подтвердить/отклонить
         if (!booking.getItem().getOwner().getId().equals(userId)) {
             throw new ForbiddenException("Только владелец вещи может подтвердить или отклонить бронирование");
         }
@@ -103,7 +100,6 @@ public class BookingServiceImpl implements BookingService {
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
-        // Проверка прав: только автор или владелец вещи
         if (!booking.getBooker().getId().equals(userId) &&
                 !booking.getItem().getOwner().getId().equals(userId)) {
             throw new ForbiddenException("У вас нет прав на просмотр этого бронирования");

@@ -35,7 +35,6 @@ public class ItemService {
         List<Item> items = itemRepository.findByOwnerId(userId);
         List<Long> itemIds = items.stream().map(Item::getId).collect(Collectors.toList());
 
-        // Загружаем все бронирования и комментарии одним запросом (решение N+1)
         List<Booking> allBookings = bookingRepository.findAllByItemIds(itemIds);
         List<Comment> allComments = commentRepository.findAllByItemIds(itemIds);
 

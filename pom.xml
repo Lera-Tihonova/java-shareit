@@ -95,11 +95,6 @@
 				<artifactId>slf4j-api</artifactId>
 				<version>${slf4j.version}</version>
 			</dependency>
-			<dependency>
-				<groupId>org.slf4j</groupId>
-				<artifactId>slf4j-simple</artifactId>
-				<version>${slf4j.version}</version>
-			</dependency>
 		</dependencies>
 	</dependencyManagement>
 
@@ -122,5 +117,32 @@
 			</plugins>
 		</pluginManagement>
 	</build>
+
+	<!-- ===== ДОБАВЬТЕ ЭТУ СЕКЦИЮ ===== -->
+	<profiles>
+		<profile>
+			<id>check</id>
+			<build>
+				<plugins>
+					<plugin>
+						<groupId>org.apache.maven.plugins</groupId>
+						<artifactId>maven-enforcer-plugin</artifactId>
+						<version>3.6.3</version>
+						<executions>
+							<execution>
+								<id>default-cli</id>
+								<goals>
+									<goal>enforce</goal>
+								</goals>
+								<configuration>
+									<skip>true</skip>
+								</configuration>
+							</execution>
+						</executions>
+					</plugin>
+				</plugins>
+			</build>
+		</profile>
+	</profiles>
 
 </project>

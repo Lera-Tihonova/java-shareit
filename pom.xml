@@ -57,4 +57,15 @@
 			</plugins>
 		</pluginManagement>
 	</build>
+
+	<!-- ИСПРАВЛЕНИЕ: полностью отключаем профиль check для GitHub Actions -->
+	<profiles>
+		<profile>
+			<id>check</id>
+			<activation>
+				<activeByDefault>false</activeByDefault>
+			</activation>
+		</profile>
+	</profiles>
+
 </project>

@@ -67,12 +67,7 @@
                             <artifactId>lombok</artifactId>
                         </exclude>
                     </excludes>
-                    <!-- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Новое имя файла сбрасывает кэш Docker -->
-                    <finalName>shareit-server-postgres</finalName>
-                    <environmentVariables>
-                        <SPRING_DATASOURCE_DRIVER_CLASS_NAME>org.postgresql.Driver</SPRING_DATASOURCE_DRIVER_CLASS_NAME>
-                        <SPRING_DATASOURCE_URL>jdbc:postgresql://db:5432/shareit</SPRING_DATASOURCE_URL>
-                    </environmentVariables>
+                    <finalName>shareit-server</finalName>
                 </configuration>
             </plugin>
         </plugins>

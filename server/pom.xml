@@ -41,7 +41,6 @@
             <artifactId>postgresql</artifactId>
             <scope>runtime</scope>
         </dependency>
-        <!-- Добавляем Lombok -->
         <dependency>
             <groupId>org.projectlombok</groupId>
             <artifactId>lombok</artifactId>
@@ -62,6 +61,17 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>ru.practicum.shareit.ShareItServerApp</mainClass>
+                    <excludes>
+                        <exclude>
+                            <groupId>org.projectlombok</groupId>
+                            <artifactId>lombok</artifactId>
+                        </exclude>
+                    </excludes>
+                    <!-- ВАЖНО: это заставит Maven перезаписать проперти при сборке -->
+                    <environmentVariables>
+                        <SPRING_DATASOURCE_DRIVER_CLASS_NAME>org.postgresql.Driver</SPRING_DATASOURCE_DRIVER_CLASS_NAME>
+                        <SPRING_DATASOURCE_URL>jdbc:postgresql://db:5432/shareit</SPRING_DATASOURCE_URL>
+                    </environmentVariables>
                 </configuration>
             </plugin>
         </plugins>

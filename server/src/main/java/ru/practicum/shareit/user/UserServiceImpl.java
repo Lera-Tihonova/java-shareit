@@ -15,12 +15,11 @@ import java.util.stream.Collectors;
 public class UserServiceImpl implements UserService {
 
     private final UserRepository userRepository;
-    // ИСПРАВЛЕНИЕ: Убрали поле UserMapper (он статический)
 
     @Override
     public List<UserDto> getAllUsers() {
         return userRepository.findAll().stream()
-                .map(UserMapper::toDto) // ИСПРАВЛЕНИЕ: Вызов через класс
+                .map(UserMapper::toDto)
                 .collect(Collectors.toList());
     }
 

@@ -95,6 +95,7 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public BookingResponseDto findById(Long bookingId, Long userId) {
+        // ГЛАВНОЕ ИСПРАВЛЕНИЕ: кидаем конкретное исключение с текстом, а не пустой 500
         Booking booking = bookingRepository.findById(bookingId)
                 .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
 
@@ -108,7 +109,6 @@ public class BookingServiceImpl implements BookingService {
 
     @Override
     public List<BookingResponseDto> findAllByUser(Long userId, BookingState state) {
-        // ИСПРАВЛЕНИЕ: явная проверка существования пользователя
         if (!userRepository.existsById(userId)) {
             throw new NotFoundException("Пользователь с id " + userId + " не найден");
         }

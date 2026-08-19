@@ -13,18 +13,7 @@ import java.util.Map;
 @RestControllerAdvice
 public class ErrorHandler {
 
-    // Обработка ошибок валидации (@Valid) - ВОЗВРАЩАЕТ 400 BAD REQUEST
-    @ExceptionHandler(MethodArgumentNotValidException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public Map<String, String> handleValidationExceptions(MethodArgumentNotValidException e) {
-        String errorMessage = e.getBindingResult().getFieldErrors().stream()
-                .findFirst()
-                .map(error -> error.getDefaultMessage())
-                .orElse("Ошибка валидации");
-        log.error("400 Bad Request: {}", errorMessage);
-        return Map.of("error", errorMessage);
-    }
-
+    // 404 - Ресурс не найден
     @ExceptionHandler
     @ResponseStatus(HttpStatus.NOT_FOUND)
     public Map<String, String> handleNotFound(NotFoundException e) {
@@ -32,6 +21,7 @@ public class ErrorHandler {
         return Map.of("error", e.getMessage());
     }
 
+    // 409 - Дубликат email (Conflict)
     @ExceptionHandler
     @ResponseStatus(HttpStatus.CONFLICT)
     public Map<String, String> handleEmailDuplicate(DuplicateEmailException e) {
@@ -39,6 +29,7 @@ public class ErrorHandler {
         return Map.of("error", e.getMessage());
     }
 
+    // 400 - Ошибка валидации в сервисах (Bad Request)
     @ExceptionHandler
     @ResponseStatus(HttpStatus.BAD_REQUEST)
     public Map<String, String> handleBadRequest(ValidationException e) {
@@ -46,6 +37,7 @@ public class ErrorHandler {
         return Map.of("error", e.getMessage());
     }
 
+    // 403 - Доступ запрещен (Forbidden)
     @ExceptionHandler
     @ResponseStatus(HttpStatus.FORBIDDEN)
     public Map<String, String> handleForbidden(ForbiddenException e) {
@@ -53,6 +45,19 @@ public class ErrorHandler {
         return Map.of("error", e.getMessage());
     }
 
+    // ИСПРАВЛЕНИЕ: Добавлен перехват ошибок валидации @Valid (например, невалидный email)
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> handleMethodArgumentNotValid(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(error -> error.getDefaultMessage())
+                .orElse("Ошибка валидации");
+        log.error("400 Bad Request (Validation): {}", message);
+        return Map.of("error", message);
+    }
+
+    // 500 - Внутренняя ошибка сервера
     @ExceptionHandler
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
     public Map<String, String> handleThrowable(Throwable e) {

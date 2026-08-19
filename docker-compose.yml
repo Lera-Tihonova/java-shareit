@@ -24,6 +24,7 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    # ИСПРАВЛЕНИЕ: Передаем всё через environment, УБИРАЕМ command
     environment:
       - SPRING_DATASOURCE_URL=jdbc:postgresql://db:5432/shareit
       - SPRING_DATASOURCE_USERNAME=postgres
@@ -32,16 +33,7 @@ services:
       - SPRING_JPA_HIBERNATE_DDL_AUTO=create-drop
       - SPRING_JPA_PROPERTIES_HIBERNATE_DIALECT=org.hibernate.dialect.PostgreSQLDialect
       - SPRING_SQL_INIT_MODE=never
-    # ЯВНО переопределяем драйвер через аргументы Java!
-    command: >
-      sh -c "
-        java -Dspring.datasource.driverClassName=org.postgresql.Driver 
-             -Dspring.datasource.url=jdbc:postgresql://db:5432/shareit 
-             -Dspring.datasource.username=postgres 
-             -Dspring.datasource.password=postgres 
-             -Dspring.jpa.hibernate.ddl-auto=create-drop 
-             -jar app.jar
-      "
+      - SERVER_PORT=9090
 
   gateway:
     build: gateway

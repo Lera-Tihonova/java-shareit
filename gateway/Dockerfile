@@ -7,4 +7,4 @@ RUN chmod +x mvnw
 RUN ./mvnw dependency:resolve
 COPY src src
 RUN ./mvnw clean package -DskipTests
-ENTRYPOINT ["sh", "-c", "java -jar target/shareit-gateway-0.0.1-SNAPSHOT.jar"]
+ENTRYPOINT ["sh", "-c", "java -jar target/shareit-gateway-2.jar"]

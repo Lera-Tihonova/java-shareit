@@ -61,6 +61,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>ru.practicum.shareit.ShareItServerApp</mainClass>
+                    <finalName>shareit-server-2</finalName>
                 </configuration>
             </plugin>
         </plugins>

@@ -10,7 +10,8 @@ public class ItemRequestDto {
 
     private String created;
 
-    public ItemRequestDto() {}
+    public ItemRequestDto() {
+    }
 
     public ItemRequestDto(Long id, String description, String created) {
         this.id = id;

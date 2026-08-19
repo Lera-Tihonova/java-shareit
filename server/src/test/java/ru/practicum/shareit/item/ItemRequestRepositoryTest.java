@@ -8,8 +8,10 @@ import org.springframework.data.domain.Sort;
 import org.springframework.test.context.ActiveProfiles;
 import ru.practicum.shareit.user.User;
 import ru.practicum.shareit.user.UserRepository;
+
 import java.time.LocalDateTime;
 import java.util.List;
+
 import static org.assertj.core.api.Assertions.assertThat;
 
 @DataJpaTest
@@ -65,6 +67,7 @@ class ItemRequestRepositoryTest {
     @Test
     void findAllOther_shouldReturnEmptyList_whenNoOtherRequests() {
         User requestor = userRepository.save(new User(null, "Requestor", "requestor@mail.com"));
+
         ItemRequest request1 = new ItemRequest(null, "Нужна дрель", requestor, LocalDateTime.now());
         itemRequestRepository.save(request1);
 

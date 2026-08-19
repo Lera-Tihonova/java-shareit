@@ -1,64 +1,62 @@
 package ru.practicum.shareit.exception;
 
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.MethodArgumentNotValidException;
-import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
 
+import java.util.Map;
+
+@Slf4j
 @RestControllerAdvice
 public class ErrorHandler {
 
-    @ExceptionHandler(NotFoundException.class)
-    @ResponseStatus(HttpStatus.NOT_FOUND)
-    public ErrorResponse handleNotFound(NotFoundException e) {
-        return new ErrorResponse("Not Found", e.getMessage());
-    }
-
-    @ExceptionHandler(DuplicateEmailException.class)
-    @ResponseStatus(HttpStatus.CONFLICT)
-    public ErrorResponse handleDuplicateEmail(DuplicateEmailException e) {
-        return new ErrorResponse("Conflict", e.getMessage());
-    }
-
-    @ExceptionHandler(ValidationException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleValidation(ValidationException e) {
-        return new ErrorResponse("Bad Request", e.getMessage());
-    }
-
-    @ExceptionHandler(ForbiddenException.class)
-    @ResponseStatus(HttpStatus.FORBIDDEN)
-    public ErrorResponse handleForbidden(ForbiddenException e) {
-        return new ErrorResponse("Forbidden", e.getMessage());
-    }
-
+    // Обработка ошибок валидации (@Valid) - ВОЗВРАЩАЕТ 400 BAD REQUEST
     @ExceptionHandler(MethodArgumentNotValidException.class)
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleMethodArgumentNotValid(MethodArgumentNotValidException e) {
-        String message = e.getBindingResult().getFieldErrors().stream()
-                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+    public Map<String, String> handleValidationExceptions(MethodArgumentNotValidException e) {
+        String errorMessage = e.getBindingResult().getFieldErrors().stream()
                 .findFirst()
-                .orElse("Validation error");
-        return new ErrorResponse("Bad Request", message);
+                .map(error -> error.getDefaultMessage())
+                .orElse("Ошибка валидации");
+        log.error("400 Bad Request: {}", errorMessage);
+        return Map.of("error", errorMessage);
     }
 
-    @ExceptionHandler(MissingRequestHeaderException.class)
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, String> handleNotFound(NotFoundException e) {
+        log.error("404 Not Found: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
+    }
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> handleEmailDuplicate(DuplicateEmailException e) {
+        log.error("409 Conflict: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
+    }
+
+    @ExceptionHandler
     @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleMissingHeader(MissingRequestHeaderException e) {
-        return new ErrorResponse("Bad Request", "Отсутствует обязательный заголовок: " + e.getHeaderName());
+    public Map<String, String> handleBadRequest(ValidationException e) {
+        log.error("400 Bad Request: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
     }
 
-    @ExceptionHandler(IllegalArgumentException.class)
-    @ResponseStatus(HttpStatus.BAD_REQUEST)
-    public ErrorResponse handleIllegalArgument(IllegalArgumentException e) {
-        return new ErrorResponse("Bad Request", e.getMessage());
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, String> handleForbidden(ForbiddenException e) {
+        log.error("403 Forbidden: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
     }
 
-    @ExceptionHandler(RuntimeException.class)
+    @ExceptionHandler
     @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
-    public ErrorResponse handleRuntimeException(RuntimeException e) {
-        return new ErrorResponse("Internal Server Error", "Произошла непредвиденная ошибка: " + e.getMessage());
+    public Map<String, String> handleThrowable(Throwable e) {
+        log.error("500 Internal Server Error: ", e);
+        return Map.of("error", "Произошла внутренняя ошибка сервера");
     }
 }

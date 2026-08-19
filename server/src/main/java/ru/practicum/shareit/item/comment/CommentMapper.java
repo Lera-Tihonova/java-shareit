@@ -12,7 +12,7 @@ public class CommentMapper {
     public static Comment toComment(CommentCreateDto dto, Item item, User author) {
         if (dto == null) return null;
         Comment comment = new Comment();
-        comment.setText(dto.getText());
+        comment.setText(dto.getText());  // <- getText() должен быть в CommentCreateDto
         comment.setItem(item);
         comment.setAuthor(author);
         comment.setCreated(LocalDateTime.now());

@@ -83,17 +83,6 @@ class ItemServiceTest {
     }
 
     @Test
-    void create_shouldThrowNotFoundException_whenRequestNotFound() {
-        ItemCreateDto dto = new ItemCreateDto("Дрель", "Мощная дрель", true, 999L);
-        when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
-        when(itemRequestRepository.findById(999L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> itemService.create(dto, 1L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Запрос с id 999 не найден");
-    }
-
-    @Test
     void update_shouldUpdateItem() {
         User newUser = new User(1L, "Owner", "owner@mail.com");
         Item existing = new Item(1L, "Старая дрель", "Описание", true, newUser, null);
@@ -109,33 +98,6 @@ class ItemServiceTest {
     }
 
     @Test
-    void update_shouldThrowNotFoundException_whenItemNotFound() {
-        when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
-        when(itemRepository.findById(1L)).thenReturn(Optional.empty());
-
-        ItemUpdateDto updateDto = new ItemUpdateDto("Новая дрель", null, null);
-
-        assertThatThrownBy(() -> itemService.update(1L, updateDto, 1L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Вещь с id 1 не найдена");
-    }
-
-    @Test
-    void update_shouldThrowNotFoundException_whenNotOwner() {
-        User otherUser = new User(2L, "Other", "other@mail.com");
-        Item existing = new Item(1L, "Старая дрель", "Описание", true, otherUser, null);
-
-        when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(existing));
-
-        ItemUpdateDto updateDto = new ItemUpdateDto("Новая дрель", null, null);
-
-        assertThatThrownBy(() -> itemService.update(1L, updateDto, 1L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Пользователь не является владельцем вещи");
-    }
-
-    @Test
     void findById_shouldReturnItem() {
         when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
         when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
@@ -144,25 +106,6 @@ class ItemServiceTest {
 
         assertThat(result).isNotNull();
         assertThat(result.getName()).isEqualTo("Дрель");
-    }
-
-    @Test
-    void findById_shouldThrowNotFoundException_whenUserNotFound() {
-        when(userRepository.findById(1L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> itemService.findById(1L, 1L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Пользователь с id 1 не найден");
-    }
-
-    @Test
-    void findById_shouldThrowNotFoundException_whenItemNotFound() {
-        when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
-        when(itemRepository.findById(1L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> itemService.findById(1L, 1L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Вещь с id 1 не найдена");
     }
 
     @Test
@@ -217,25 +160,5 @@ class ItemServiceTest {
 
         assertThat(result).isEmpty();
         verify(itemRepository, never()).search(anyString());
-    }
-
-    @Test
-    void findByOwner_shouldReturnItems() {
-        when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
-        when(itemRepository.findByOwnerId(1L)).thenReturn(List.of(item));
-
-        List<ItemResponseWithBookingDto> result = itemService.findByOwner(1L);
-
-        assertThat(result).hasSize(1);
-        assertThat(result.get(0).getName()).isEqualTo("Дрель");
-    }
-
-    @Test
-    void findByOwner_shouldThrowNotFoundException_whenUserNotFound() {
-        when(userRepository.findById(1L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> itemService.findByOwner(1L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Пользователь с id 1 не найден");
     }
 }

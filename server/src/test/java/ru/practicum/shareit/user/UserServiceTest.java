@@ -24,7 +24,7 @@ class UserServiceTest {
     private UserRepository userRepository;
 
     @InjectMocks
-    private UserService userService;
+    private UserServiceImpl userService; // ИСПРАВЛЕНИЕ: Внедряем реализацию, а не интерфейс, если используем конструктор
 
     @Test
     void findAll_shouldReturnAllUsers() {
@@ -35,7 +35,7 @@ class UserServiceTest {
 
         when(userRepository.findAll()).thenReturn(users);
 
-        List<UserDto> result = userService.findAll();
+        List<UserDto> result = userService.getAllUsers();
 
         assertThat(result).hasSize(2);
         assertThat(result.get(0).getName()).isEqualTo("User1");
@@ -46,7 +46,7 @@ class UserServiceTest {
         User user = new User(1L, "User1", "user1@mail.com");
         when(userRepository.findById(1L)).thenReturn(Optional.of(user));
 
-        UserDto result = userService.findById(1L);
+        UserDto result = userService.getUserById(1L);
 
         assertThat(result).isNotNull();
         assertThat(result.getName()).isEqualTo("User1");
@@ -56,7 +56,7 @@ class UserServiceTest {
     void findById_shouldThrowNotFoundException_whenUserNotFound() {
         when(userRepository.findById(1L)).thenReturn(Optional.empty());
 
-        assertThatThrownBy(() -> userService.findById(1L))
+        assertThatThrownBy(() -> userService.getUserById(1L))
                 .isInstanceOf(NotFoundException.class)
                 .hasMessageContaining("Пользователь с id 1 не найден");
     }
@@ -69,7 +69,7 @@ class UserServiceTest {
         when(userRepository.existsByEmail("new@mail.com")).thenReturn(false);
         when(userRepository.save(any(User.class))).thenReturn(user);
 
-        UserDto result = userService.create(dto);
+        UserDto result = userService.createUser(dto);
 
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(1L);
@@ -81,7 +81,7 @@ class UserServiceTest {
 
         when(userRepository.existsByEmail("existing@mail.com")).thenReturn(true);
 
-        assertThatThrownBy(() -> userService.create(dto))
+        assertThatThrownBy(() -> userService.createUser(dto))
                 .isInstanceOf(DuplicateEmailException.class)
                 .hasMessageContaining("Пользователь с email existing@mail.com уже существует");
     }
@@ -94,16 +94,17 @@ class UserServiceTest {
         when(userRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(userRepository.save(any(User.class))).thenReturn(existing);
 
-        UserDto result = userService.update(1L, dto);
+        UserDto result = userService.updateUser(1L, dto);
 
         assertThat(result.getName()).isEqualTo("New Name");
     }
 
     @Test
     void delete_shouldDeleteUser() {
+        when(userRepository.existsById(1L)).thenReturn(true);
         doNothing().when(userRepository).deleteById(1L);
 
-        userService.delete(1L);
+        userService.deleteUser(1L);
 
         verify(userRepository).deleteById(1L);
     }

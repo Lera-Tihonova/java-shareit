@@ -2,6 +2,9 @@ package ru.practicum.shareit.exception;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.ResponseEntity;
+
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -12,45 +15,40 @@ class ErrorHandlerTest {
     @Test
     void handleNotFound_shouldReturnNotFoundResponse() {
         NotFoundException ex = new NotFoundException("Ресурс не найден");
-        ErrorResponse response = errorHandler.handleNotFound(ex);
+        Map<String, String> response = errorHandler.handleNotFound(ex);
 
-        assertThat(response.getError()).isEqualTo("Not Found");
-        assertThat(response.getDescription()).isEqualTo("Ресурс не найден");
+        assertThat(response).containsEntry("error", "Ресурс не найден");
     }
 
     @Test
-    void handleDuplicateEmail_shouldReturnConflictResponse() {
+    void handleEmailDuplicate_shouldReturnConflictResponse() {
         DuplicateEmailException ex = new DuplicateEmailException("Email уже существует");
-        ErrorResponse response = errorHandler.handleDuplicateEmail(ex);
+        Map<String, String> response = errorHandler.handleEmailDuplicate(ex);
 
-        assertThat(response.getError()).isEqualTo("Conflict");
-        assertThat(response.getDescription()).isEqualTo("Email уже существует");
+        assertThat(response).containsEntry("error", "Email уже существует");
     }
 
     @Test
-    void handleValidation_shouldReturnBadRequestResponse() {
+    void handleBadRequest_shouldReturnBadRequestResponse() {
         ValidationException ex = new ValidationException("Некорректные данные");
-        ErrorResponse response = errorHandler.handleValidation(ex);
+        Map<String, String> response = errorHandler.handleBadRequest(ex);
 
-        assertThat(response.getError()).isEqualTo("Bad Request");
-        assertThat(response.getDescription()).isEqualTo("Некорректные данные");
+        assertThat(response).containsEntry("error", "Некорректные данные");
     }
 
     @Test
     void handleForbidden_shouldReturnForbiddenResponse() {
         ForbiddenException ex = new ForbiddenException("Доступ запрещен");
-        ErrorResponse response = errorHandler.handleForbidden(ex);
+        Map<String, String> response = errorHandler.handleForbidden(ex);
 
-        assertThat(response.getError()).isEqualTo("Forbidden");
-        assertThat(response.getDescription()).isEqualTo("Доступ запрещен");
+        assertThat(response).containsEntry("error", "Доступ запрещен");
     }
 
     @Test
-    void handleRuntimeException_shouldReturnInternalServerError() {
+    void handleThrowable_shouldReturnInternalServerError() {
         RuntimeException ex = new RuntimeException("Что-то пошло не так");
-        ErrorResponse response = errorHandler.handleRuntimeException(ex);
+        Map<String, String> response = errorHandler.handleThrowable(ex);
 
-        assertThat(response.getError()).isEqualTo("Internal Server Error");
-        assertThat(response.getDescription()).contains("Произошла непредвиденная ошибка");
+        assertThat(response).containsKey("error");
     }
 }

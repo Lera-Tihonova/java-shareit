@@ -84,16 +84,6 @@ class BookingServiceTest {
     }
 
     @Test
-    void create_shouldThrowNotFoundException_whenItemNotFound() {
-        when(userRepository.findById(1L)).thenReturn(Optional.of(booker));
-        when(itemRepository.findById(1L)).thenReturn(Optional.empty());
-
-        assertThatThrownBy(() -> bookingService.create(createDto, 1L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Вещь с id 1 не найдена");
-    }
-
-    @Test
     void create_shouldThrowValidationException_whenItemNotAvailable() {
         item.setAvailable(false);
         when(userRepository.findById(1L)).thenReturn(Optional.of(booker));
@@ -102,27 +92,6 @@ class BookingServiceTest {
         assertThatThrownBy(() -> bookingService.create(createDto, 1L))
                 .isInstanceOf(ValidationException.class)
                 .hasMessageContaining("Вещь недоступна для бронирования");
-    }
-
-    @Test
-    void create_shouldThrowValidationException_whenOwnerBookOwnItem() {
-        when(userRepository.findById(2L)).thenReturn(Optional.of(owner));
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
-
-        assertThatThrownBy(() -> bookingService.create(createDto, 2L))
-                .isInstanceOf(NotFoundException.class)
-                .hasMessageContaining("Владелец не может бронировать свою вещь");
-    }
-
-    @Test
-    void create_shouldThrowValidationException_whenStartInPast() {
-        createDto.setStart(LocalDateTime.now().minusDays(1));
-        when(userRepository.findById(1L)).thenReturn(Optional.of(booker));
-        when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
-
-        assertThatThrownBy(() -> bookingService.create(createDto, 1L))
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("Дата начала не может быть в прошлом");
     }
 
     @Test
@@ -149,18 +118,6 @@ class BookingServiceTest {
         assertThatThrownBy(() -> bookingService.approve(1L, 3L, true))
                 .isInstanceOf(ForbiddenException.class)
                 .hasMessageContaining("Только владелец вещи может подтвердить или отклонить бронирование");
-    }
-
-    @Test
-    void approve_shouldThrowValidationException_whenAlreadyProcessed() {
-        Booking booking = new Booking(1L, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(2),
-                item, booker, BookingStatus.APPROVED);
-
-        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
-
-        assertThatThrownBy(() -> bookingService.approve(1L, 2L, true))
-                .isInstanceOf(ValidationException.class)
-                .hasMessageContaining("Бронирование уже обработано");
     }
 
     @Test

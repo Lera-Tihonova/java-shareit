@@ -1,7 +1,5 @@
 package ru.practicum.shareit.item;
 
-import jakarta.validation.Valid;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.practicum.shareit.item.dto.CommentCreateDto;
@@ -10,9 +8,12 @@ import ru.practicum.shareit.item.dto.ItemUpdateDto;
 
 @RestController
 @RequestMapping("/items")
-@RequiredArgsConstructor
 public class ItemController {
     private final ItemClient itemClient;
+
+    public ItemController(ItemClient itemClient) {
+        this.itemClient = itemClient;
+    }
 
     @GetMapping
     public ResponseEntity<Object> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
@@ -29,7 +30,7 @@ public class ItemController {
 
     @PostMapping
     public ResponseEntity<Object> create(
-            @Valid @RequestBody ItemCreateDto itemCreateDto,
+            @RequestBody ItemCreateDto itemCreateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
         return itemClient.create(userId, itemCreateDto);
@@ -52,7 +53,7 @@ public class ItemController {
     @PostMapping("/{itemId}/comment")
     public ResponseEntity<Object> addComment(
             @PathVariable Long itemId,
-            @Valid @RequestBody CommentCreateDto commentCreateDto,
+            @RequestBody CommentCreateDto commentCreateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
         return itemClient.addComment(userId, itemId, commentCreateDto);

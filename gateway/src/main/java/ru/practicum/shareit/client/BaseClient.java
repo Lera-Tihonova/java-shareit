@@ -1,6 +1,7 @@
 package ru.practicum.shareit.client;
 
 import org.springframework.http.*;
+import org.springframework.lang.Nullable;
 import org.springframework.web.client.HttpStatusCodeException;
 import org.springframework.web.client.RestTemplate;
 
@@ -18,57 +19,56 @@ public class BaseClient {
         return get(path, null, null);
     }
 
-    protected ResponseEntity<Object> get(String path, Long userId) {
+    protected ResponseEntity<Object> get(String path, long userId) {
         return get(path, userId, null);
     }
 
-    protected ResponseEntity<Object> get(String path, Long userId, Map<String, Object> parameters) {
+    protected ResponseEntity<Object> get(String path, Long userId, @Nullable Map<String, Object> parameters) {
         return makeAndSendRequest(HttpMethod.GET, path, userId, parameters, null);
     }
 
-    protected ResponseEntity<Object> post(String path, Long userId, Object body) {
+    protected ResponseEntity<Object> post(String path, Object body) {
+        return post(path, null, null, body);
+    }
+
+    protected ResponseEntity<Object> post(String path, long userId, Object body) {
         return post(path, userId, null, body);
     }
 
-    protected ResponseEntity<Object> post(String path, Long userId, Map<String, Object> parameters, Object body) {
+    protected ResponseEntity<Object> post(String path, Long userId, @Nullable Map<String, Object> parameters, Object body) {
         return makeAndSendRequest(HttpMethod.POST, path, userId, parameters, body);
     }
 
-    protected ResponseEntity<Object> patch(String path, Long userId, Object body) {
+    protected ResponseEntity<Object> patch(String path, long userId, Object body) {
         return patch(path, userId, null, body);
     }
 
-    protected ResponseEntity<Object> patch(String path, Long userId, Map<String, Object> parameters, Object body) {
+    protected ResponseEntity<Object> patch(String path, Long userId, @Nullable Map<String, Object> parameters, Object body) {
         return makeAndSendRequest(HttpMethod.PATCH, path, userId, parameters, body);
     }
 
-    protected ResponseEntity<Object> delete(String path) {
-        return delete(path, null);
-    }
-
-    protected ResponseEntity<Object> delete(String path, Long userId) {
+    protected ResponseEntity<Object> delete(String path, long userId) {
         return delete(path, userId, null);
     }
 
-    protected ResponseEntity<Object> delete(String path, Long userId, Map<String, Object> parameters) {
+    protected ResponseEntity<Object> delete(String path, Long userId, @Nullable Map<String, Object> parameters) {
         return makeAndSendRequest(HttpMethod.DELETE, path, userId, parameters, null);
     }
 
-    private ResponseEntity<Object> makeAndSendRequest(HttpMethod method, String path, Long userId,
-                                                      Map<String, Object> parameters, Object body) {
+    private ResponseEntity<Object> makeAndSendRequest(HttpMethod method, String path, Long userId, @Nullable Map<String, Object> parameters, @Nullable Object body) {
         HttpEntity<Object> requestEntity = new HttpEntity<>(body, defaultHeaders(userId));
 
-        ResponseEntity<Object> response;
+        ResponseEntity<Object> shareitServerResponse;
         try {
-            if (parameters != null && !parameters.isEmpty()) {
-                response = rest.exchange(path, method, requestEntity, Object.class, parameters);
+            if (parameters != null) {
+                shareitServerResponse = rest.exchange(path, method, requestEntity, Object.class, parameters);
             } else {
-                response = rest.exchange(path, method, requestEntity, Object.class);
+                shareitServerResponse = rest.exchange(path, method, requestEntity, Object.class);
             }
         } catch (HttpStatusCodeException e) {
-            return ResponseEntity.status(e.getStatusCode()).body(e.getResponseBodyAsByteArray());
+            return ResponseEntity.status(e.getStatusCode()).body(e.getResponseBodyAsString());
         }
-        return prepareResponse(response);
+        return prepareGatewayResponse(shareitServerResponse);
     }
 
     private HttpHeaders defaultHeaders(Long userId) {
@@ -81,11 +81,10 @@ public class BaseClient {
         return headers;
     }
 
-    private ResponseEntity<Object> prepareResponse(ResponseEntity<Object> response) {
+    private static ResponseEntity<Object> prepareGatewayResponse(ResponseEntity<Object> response) {
         if (response.getStatusCode().is2xxSuccessful()) {
             return response;
         }
-
         ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.status(response.getStatusCode());
         if (response.hasBody()) {
             return responseBuilder.body(response.getBody());

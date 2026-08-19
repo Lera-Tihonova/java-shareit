@@ -1,6 +1,7 @@
 package ru.practicum.shareit.user;
 
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.web.client.RestTemplateBuilder;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
@@ -11,35 +12,37 @@ import ru.practicum.shareit.user.dto.UserDto;
 
 @Service
 public class UserClient extends BaseClient {
-    private static final String API_PREFIX = "/users";
 
     @Autowired
-    public UserClient(RestTemplateBuilder builder) {
+    public UserClient(@Value("${shareit-server.url}") String serverUrl, RestTemplateBuilder builder) {
         super(
                 builder
-                        .uriTemplateHandler(new DefaultUriBuilderFactory("http://localhost:9090" + API_PREFIX))
-                        .requestFactory(() -> new HttpComponentsClientHttpRequestFactory())
+                        .uriTemplateHandler(new DefaultUriBuilderFactory(serverUrl + "/users"))
+                        .requestFactory(HttpComponentsClientHttpRequestFactory.class) // Исправление: передаем класс
                         .build()
         );
     }
 
-    public ResponseEntity<Object> findAll() {
+    public ResponseEntity<Object> createUser(UserDto userDto) {
+        return post("", userDto);
+    }
+
+    public ResponseEntity<Object> getAllUsers() {
         return get("");
     }
 
-    public ResponseEntity<Object> findById(Long id) {
-        return get("/" + id);
+    public ResponseEntity<Object> getUserById(Long userId) {
+        return get("/" + userId);
     }
 
-    public ResponseEntity<Object> create(UserDto userDto) {
-        return post("", null, userDto);
+    public ResponseEntity<Object> updateUser(Long userId, UserDto userDto) {
+        return patch("/" + userId, userId, userDto);
     }
 
-    public ResponseEntity<Object> update(Long id, UserDto userDto) {
-        return patch("/" + id, null, userDto);
-    }
-
-    public ResponseEntity<Object> delete(Long id) {
-        return delete("/" + id);
+    public ResponseEntity<Object> deleteUser(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("ID пользователя не может быть null");
+        }
+        return delete("/" + userId, userId);
     }
 }

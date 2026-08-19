@@ -6,7 +6,8 @@ public class ItemCreateDto {
     private Boolean available;
     private Long requestId;
 
-    public ItemCreateDto() {}
+    public ItemCreateDto() {
+    }
 
     public ItemCreateDto(String name, String description, Boolean available, Long requestId) {
         this.name = name;
@@ -15,15 +16,35 @@ public class ItemCreateDto {
         this.requestId = requestId;
     }
 
-    public String getName() { return name; }
-    public void setName(String name) { this.name = name; }
+    public String getName() {
+        return name;
+    }
 
-    public String getDescription() { return description; }
-    public void setDescription(String description) { this.description = description; }
+    public void setName(String name) {
+        this.name = name;
+    }
 
-    public Boolean getAvailable() { return available; }
-    public void setAvailable(Boolean available) { this.available = available; }
+    public String getDescription() {
+        return description;
+    }
 
-    public Long getRequestId() { return requestId; }
-    public void setRequestId(Long requestId) { this.requestId = requestId; }
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public Boolean getAvailable() {
+        return available;
+    }
+
+    public void setAvailable(Boolean available) {
+        this.available = available;
+    }
+
+    public Long getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(Long requestId) {
+        this.requestId = requestId;
+    }
 }

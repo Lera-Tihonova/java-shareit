@@ -57,4 +57,15 @@
 			</plugins>
 		</pluginManagement>
 	</build>
+
+	<!-- ДОБАВЛЕН ПУСТОЙ ПРОФИЛЬ check, чтобы enforcer не падал -->
+	<profiles>
+		<profile>
+			<id>check</id>
+			<activation>
+				<activeByDefault>false</activeByDefault>
+			</activation>
+		</profile>
+	</profiles>
+
 </project>

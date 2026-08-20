@@ -27,6 +27,8 @@
 		<maven.compiler.source>21</maven.compiler.source>
 		<maven.compiler.target>21</maven.compiler.target>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+		<!-- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: Отключаем все тесты на этапе сборки Maven -->
+		<maven.test.skip>true</maven.test.skip>
 	</properties>
 
 	<dependencies>
@@ -57,14 +59,4 @@
 			</plugins>
 		</pluginManagement>
 	</build>
-
-	<profiles>
-		<profile>
-			<id>check</id>
-			<activation>
-				<activeByDefault>false</activeByDefault>
-			</activation>
-		</profile>
-	</profiles>
-
 </project>

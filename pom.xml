@@ -10,7 +10,6 @@
 	<version>0.0.1-SNAPSHOT</version>
 	<packaging>pom</packaging>
 
-	<!-- ВОССТАНОВЛЕННЫЙ БЛОК МОДУЛЕЙ -->
 	<modules>
 		<module>gateway</module>
 		<module>server</module>

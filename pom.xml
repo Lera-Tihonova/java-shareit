@@ -28,6 +28,9 @@
 		<maven.compiler.target>21</maven.compiler.target>
 		<project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
 		<maven.test.skip>true</maven.test.skip>
+
+		<!-- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: принудительная очистка target перед сборкой -->
+		<maven.clean>true</maven.clean>
 	</properties>
 
 	<dependencies>

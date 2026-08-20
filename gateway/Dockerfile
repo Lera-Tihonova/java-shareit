@@ -1,10 +1,5 @@
 FROM eclipse-temurin:21-jre-jammy
-WORKDIR /app
-COPY mvnw .
-COPY .mvn .mvn
-COPY pom.xml .
-RUN chmod +x mvnw
-RUN ./mvnw dependency:resolve
-COPY src src
-RUN ./mvnw clean package -DskipTests
-ENTRYPOINT ["sh", "-c", "java -jar target/shareit-gateway-2.jar"]
+VOLUME /tmp
+ARG JAR_FILE=target/shareit-gateway-2026.jar
+COPY ${JAR_FILE} app.jar
+ENTRYPOINT ["sh", "-c", "java -jar /app.jar"]

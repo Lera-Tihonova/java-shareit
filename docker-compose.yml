@@ -11,8 +11,8 @@ services:
       - POSTGRES_PASSWORD=postgres
 
   server:
-    build: ./server-app
-    container_name: shareit-server-app
+    build: ./server
+    container_name: shareit-server
     ports:
       - "9090:9090"
     depends_on:

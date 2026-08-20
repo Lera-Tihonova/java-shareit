@@ -7,7 +7,8 @@
 
 	<groupId>ru.practicum</groupId>
 	<artifactId>shareit</artifactId>
-	<version>0.0.1-SNAPSHOT</version>
+	<!-- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ: новая версия, чтобы сбросить кэш Maven -->
+	<version>0.0.2-SNAPSHOT</version>
 	<packaging>pom</packaging>
 
 	<modules>
@@ -58,7 +59,6 @@
 		</pluginManagement>
 	</build>
 
-	<!-- ДОБАВЛЕН ПУСТОЙ ПРОФИЛЬ check, чтобы enforcer не падал -->
 	<profiles>
 		<profile>
 			<id>check</id>

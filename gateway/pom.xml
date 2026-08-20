@@ -50,7 +50,7 @@
                 <artifactId>spring-boot-maven-plugin</artifactId>
                 <configuration>
                     <mainClass>ru.practicum.shareit.ShareItGatewayApp</mainClass>
-                    <finalName>shareit-gateway-2026-final</finalName>
+                    <finalName>shareit-gateway-final-v2</finalName>
                 </configuration>
             </plugin>
         </plugins>

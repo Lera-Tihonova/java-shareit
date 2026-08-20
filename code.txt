@@ -1,0 +1,4566 @@
+package ru.practicum.shareit.booking.dto;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.json.JsonTest;
+import org.springframework.boot.test.json.JacksonTester;
+
+import java.time.LocalDateTime;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@JsonTest
+class BookingCreateDtoJsonTest {
+
+    @Autowired
+    private JacksonTester<BookingCreateDto> json;
+
+    @Test
+    void testSerialize() throws Exception {
+        BookingCreateDto dto = new BookingCreateDto(1L, LocalDateTime.now(), LocalDateTime.now().plusDays(1));
+        assertThat(json.write(dto)).hasJsonPathNumberValue("$.itemId");
+    }
+}package ru.practicum.shareit.booking;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.data.domain.Sort;
+import org.springframework.test.context.ActiveProfiles;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.item.ItemRepository;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DataJpaTest
+@ActiveProfiles("test")
+class BookingRepositoryTest {
+
+    @Autowired
+    private BookingRepository bookingRepository;
+    @Autowired
+    private UserRepository userRepository;
+    @Autowired
+    private ItemRepository itemRepository;
+
+    @Test
+    void findByBookerId_shouldReturnBookings() {
+        User booker = userRepository.save(new User(null, "Booker", "booker@mail.com"));
+        User owner = userRepository.save(new User(null, "Owner", "owner@mail.com"));
+        Item item = itemRepository.save(new Item(null, "Дрель", "Мощная дрель", true, owner, null));
+        Booking booking = bookingRepository.save(new Booking(null, LocalDateTime.now().plusDays(1),
+                LocalDateTime.now().plusDays(2), item, booker, BookingStatus.WAITING));
+
+        List<Booking> bookings = bookingRepository.findByBookerId(booker.getId(), Sort.by(Sort.Direction.DESC, "start"));
+        assertThat(bookings).isNotEmpty();
+        assertThat(bookings.get(0).getId()).isEqualTo(booking.getId());
+    }
+
+    @Test
+    void existsOverlappingBooking_shouldReturnTrue_whenOverlapExists() {
+        User booker1 = userRepository.save(new User(null, "Booker1", "booker1@mail.com"));
+        User owner = userRepository.save(new User(null, "Owner", "owner@mail.com"));
+        Item item = itemRepository.save(new Item(null, "Дрель", "Мощная дрель", true, owner, null));
+        LocalDateTime start = LocalDateTime.now().plusDays(1);
+        LocalDateTime end = LocalDateTime.now().plusDays(2);
+        bookingRepository.save(new Booking(null, start, end, item, booker1, BookingStatus.APPROVED));
+
+        boolean exists = bookingRepository.existsOverlappingBooking(item.getId(), start.plusHours(1), end.minusHours(1));
+        assertThat(exists).isTrue();
+    }
+
+    @Test
+    void existsOverlappingBooking_shouldReturnFalse_whenNoOverlap() {
+        User booker1 = userRepository.save(new User(null, "Booker1", "booker1@mail.com"));
+        User owner = userRepository.save(new User(null, "Owner", "owner@mail.com"));
+        Item item = itemRepository.save(new Item(null, "Дрель", "Мощная дрель", true, owner, null));
+        LocalDateTime start = LocalDateTime.now().plusDays(1);
+        LocalDateTime end = LocalDateTime.now().plusDays(2);
+        bookingRepository.save(new Booking(null, start, end, item, booker1, BookingStatus.APPROVED));
+
+        boolean exists = bookingRepository.existsOverlappingBooking(item.getId(), start.plusDays(2), end.plusDays(3));
+        assertThat(exists).isFalse();
+    }
+}package ru.practicum.shareit.booking;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import ru.practicum.shareit.booking.dto.BookingCreateDto;
+import ru.practicum.shareit.booking.dto.BookingResponseDto;
+import ru.practicum.shareit.exception.ForbiddenException;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.exception.ValidationException;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.item.ItemRepository;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class BookingServiceTest {
+
+    @Mock
+    private BookingRepository bookingRepository;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private ItemRepository itemRepository;
+    @InjectMocks
+    private BookingServiceImpl bookingService;
+
+    private User booker;
+    private User owner;
+    private Item item;
+    private BookingCreateDto createDto;
+
+    @BeforeEach
+    void setUp() {
+        booker = new User(1L, "Booker", "booker@mail.com");
+        owner = new User(2L, "Owner", "owner@mail.com");
+        item = new Item(1L, "Дрель", "Мощная дрель", true, owner, null);
+        createDto = new BookingCreateDto();
+        createDto.setItemId(1L);
+        createDto.setStart(LocalDateTime.now().plusDays(1));
+        createDto.setEnd(LocalDateTime.now().plusDays(2));
+    }
+
+    @Test
+    void create_shouldCreateBooking() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(booker));
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
+        when(bookingRepository.existsOverlappingBooking(anyLong(), any(), any())).thenReturn(false);
+        when(bookingRepository.save(any(Booking.class))).thenAnswer(invocation -> {
+            Booking b = invocation.getArgument(0);
+            b.setId(1L);
+            return b;
+        });
+
+        BookingResponseDto result = bookingService.create(createDto, 1L);
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(1L);
+        verify(bookingRepository).save(any(Booking.class));
+    }
+
+    @Test
+    void create_shouldThrowNotFoundException_whenUserNotFound() {
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> bookingService.create(createDto, 1L))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Пользователь с id 1 не найден");
+    }
+
+    @Test
+    void create_shouldThrowValidationException_whenItemNotAvailable() {
+        item.setAvailable(false);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(booker));
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
+        assertThatThrownBy(() -> bookingService.create(createDto, 1L))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Вещь недоступна для бронирования");
+    }
+
+    @Test
+    void approve_shouldApproveBooking() {
+        Booking booking = new Booking(1L, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(2),
+                item, booker, BookingStatus.WAITING);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        when(bookingRepository.save(any(Booking.class))).thenReturn(booking);
+
+        BookingResponseDto result = bookingService.approve(1L, 2L, true);
+        assertThat(result).isNotNull();
+        assertThat(result.getStatus()).isEqualTo(BookingStatus.APPROVED);
+    }
+
+    @Test
+    void approve_shouldThrowForbiddenException_whenNotOwner() {
+        Booking booking = new Booking(1L, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(2),
+                item, booker, BookingStatus.WAITING);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        assertThatThrownBy(() -> bookingService.approve(1L, 3L, true))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("Только владелец вещи может подтвердить или отклонить бронирование");
+    }
+
+    @Test
+    void findById_shouldReturnBooking() {
+        Booking booking = new Booking(1L, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(2),
+                item, booker, BookingStatus.WAITING);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        BookingResponseDto result = bookingService.findById(1L, 1L);
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(1L);
+    }
+
+    @Test
+    void findById_shouldThrowForbiddenException_whenUserNotBookerOrOwner() {
+        Booking booking = new Booking(1L, LocalDateTime.now().plusDays(1), LocalDateTime.now().plusDays(2),
+                item, booker, BookingStatus.WAITING);
+        when(bookingRepository.findById(1L)).thenReturn(Optional.of(booking));
+        assertThatThrownBy(() -> bookingService.findById(1L, 3L))
+                .isInstanceOf(ForbiddenException.class)
+                .hasMessageContaining("У вас нет прав на просмотр этого бронирования");
+    }
+}package ru.practicum.shareit;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class ShareItServerTests {
+    @Test
+    void contextLoads() {
+    }
+}package ru.practicum.shareit.user;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.web.servlet.WebMvcTest;
+import org.springframework.boot.test.mock.mockito.MockBean;
+import org.springframework.http.MediaType;
+import org.springframework.test.web.servlet.MockMvc;
+import ru.practicum.shareit.user.dto.UserDto;
+
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
+
+@WebMvcTest(UserController.class)
+class UserControllerTest {
+
+    @Autowired
+    private MockMvc mockMvc;
+
+    @MockBean
+    private UserService userService;
+
+    @Autowired
+    private ObjectMapper objectMapper;
+
+    @Test
+    void createUser_shouldReturnCreated() throws Exception {
+        UserDto dto = new UserDto(null, "Test", "test@mail.com");
+        when(userService.createUser(any(UserDto.class))).thenReturn(dto);
+
+        mockMvc.perform(post("/users")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(objectMapper.writeValueAsString(dto)))
+                .andExpect(status().isCreated());
+    }
+}package ru.practicum.shareit.user;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.test.context.ActiveProfiles;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DataJpaTest
+@ActiveProfiles("test")
+class UserRepositoryTest {
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Test
+    void existsByEmail_shouldReturnTrue_whenEmailExists() {
+        User user = userRepository.save(new User(null, "Test User", "test@mail.com"));
+        boolean exists = userRepository.existsByEmail("test@mail.com");
+        assertThat(exists).isTrue();
+    }
+
+    @Test
+    void existsByEmail_shouldReturnFalse_whenEmailNotExists() {
+        boolean exists = userRepository.existsByEmail("nonexistent@mail.com");
+        assertThat(exists).isFalse();
+    }
+}package ru.practicum.shareit.user;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import ru.practicum.shareit.exception.DuplicateEmailException;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.user.dto.UserDto;
+
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class UserServiceTest {
+
+    @Mock
+    private UserRepository userRepository;
+
+    @InjectMocks
+    private UserServiceImpl userService;
+
+    @Test
+    void findAll_shouldReturnAllUsers() {
+        List<User> users = List.of(
+                new User(1L, "User1", "user1@mail.com"),
+                new User(2L, "User2", "user2@mail.com")
+        );
+        when(userRepository.findAll()).thenReturn(users);
+        List<UserDto> result = userService.getAllUsers();
+        assertThat(result).hasSize(2);
+        assertThat(result.get(0).getName()).isEqualTo("User1");
+    }
+
+    @Test
+    void findById_shouldReturnUser() {
+        User user = new User(1L, "User1", "user1@mail.com");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        UserDto result = userService.getUserById(1L);
+        assertThat(result).isNotNull();
+        assertThat(result.getName()).isEqualTo("User1");
+    }
+
+    @Test
+    void findById_shouldThrowNotFoundException_whenUserNotFound() {
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> userService.getUserById(1L))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Пользователь с id 1 не найден");
+    }
+
+    @Test
+    void create_shouldCreateUser() {
+        UserDto dto = new UserDto(null, "New User", "new@mail.com");
+        User user = new User(1L, "New User", "new@mail.com");
+        when(userRepository.existsByEmail("new@mail.com")).thenReturn(false);
+        when(userRepository.save(any(User.class))).thenReturn(user);
+        UserDto result = userService.createUser(dto);
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(1L);
+    }
+
+    @Test
+    void create_shouldThrowDuplicateEmailException_whenEmailExists() {
+        UserDto dto = new UserDto(null, "New User", "existing@mail.com");
+        when(userRepository.existsByEmail("existing@mail.com")).thenReturn(true);
+        assertThatThrownBy(() -> userService.createUser(dto))
+                .isInstanceOf(DuplicateEmailException.class)
+                .hasMessageContaining("Пользователь с email existing@mail.com уже существует");
+    }
+
+    @Test
+    void update_shouldUpdateUser() {
+        User existing = new User(1L, "Old Name", "old@mail.com");
+        UserDto dto = new UserDto(null, "New Name", null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(userRepository.save(any(User.class))).thenReturn(existing);
+        UserDto result = userService.updateUser(1L, dto);
+        assertThat(result.getName()).isEqualTo("New Name");
+    }
+
+    @Test
+    void delete_shouldDeleteUser() {
+        when(userRepository.existsById(1L)).thenReturn(true);
+        doNothing().when(userRepository).deleteById(1L);
+        userService.deleteUser(1L);
+        verify(userRepository).deleteById(1L);
+    }
+}package ru.practicum.shareit.item;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class ItemServiceIntegrationTest {
+
+    @Autowired
+    private ItemService itemService;
+
+    @Autowired
+    private UserRepository userRepository;
+
+    @Test
+    void getUserItems_integrationTest() {
+        User user = userRepository.save(new User(null, "Owner", "owner@mail.com"));
+        assertThat(user).isNotNull();
+    }
+}package ru.practicum.shareit.item;
+
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import ru.practicum.shareit.booking.BookingRepository;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.exception.ValidationException;
+import ru.practicum.shareit.item.comment.Comment;
+import ru.practicum.shareit.item.comment.CommentRepository;
+import ru.practicum.shareit.item.dto.*;
+import ru.practicum.shareit.request.ItemRequestRepository;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.*;
+
+@ExtendWith(MockitoExtension.class)
+class ItemServiceTest {
+
+    @Mock
+    private ItemRepository itemRepository;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private BookingRepository bookingRepository;
+    @Mock
+    private CommentRepository commentRepository;
+    @Mock
+    private ItemRequestRepository itemRequestRepository;
+    @InjectMocks
+    private ItemService itemService;
+
+    private User owner;
+    private Item item;
+
+    @BeforeEach
+    void setUp() {
+        owner = new User(1L, "Owner", "owner@mail.com");
+        item = new Item(1L, "Дрель", "Мощная дрель", true, owner, null);
+    }
+
+    @Test
+    void create_shouldCreateItem() {
+        ItemCreateDto dto = new ItemCreateDto("Дрель", "Мощная дрель", true, null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
+        when(itemRepository.save(any(Item.class))).thenReturn(item);
+        ItemResponseDto result = itemService.create(dto, 1L);
+        assertThat(result).isNotNull();
+        assertThat(result.getName()).isEqualTo("Дрель");
+    }
+
+    @Test
+    void create_shouldThrowNotFoundException_whenUserNotFound() {
+        ItemCreateDto dto = new ItemCreateDto("Дрель", "Мощная дрель", true, null);
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> itemService.create(dto, 1L))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Пользователь с id 1 не найден");
+    }
+
+    @Test
+    void update_shouldUpdateItem() {
+        User newUser = new User(1L, "Owner", "owner@mail.com");
+        Item existing = new Item(1L, "Старая дрель", "Описание", true, newUser, null);
+        when(userRepository.findById(1L)).thenReturn(Optional.of(newUser));
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(itemRepository.save(any(Item.class))).thenReturn(existing);
+
+        ItemUpdateDto updateDto = new ItemUpdateDto("Новая дрель", null, null);
+        ItemResponseDto result = itemService.update(1L, updateDto, 1L);
+        assertThat(result.getName()).isEqualTo("Новая дрель");
+    }
+
+    @Test
+    void findById_shouldReturnItem() {
+        when(userRepository.findById(1L)).thenReturn(Optional.of(owner));
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
+        ItemResponseWithBookingDto result = itemService.findById(1L, 1L);
+        assertThat(result).isNotNull();
+        assertThat(result.getName()).isEqualTo("Дрель");
+    }
+
+    @Test
+    void addComment_shouldAddComment() {
+        User author = new User(2L, "Author", "author@mail.com");
+        CommentCreateDto commentDto = new CommentCreateDto("Отличная вещь!");
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
+        when(bookingRepository.existsByItemIdAndBookerIdAndEndBefore(anyLong(), anyLong(), any(LocalDateTime.class)))
+                .thenReturn(true);
+        when(commentRepository.save(any(Comment.class))).thenAnswer(invocation -> {
+            Comment c = invocation.getArgument(0);
+            c.setId(1L);
+            return c;
+        });
+
+        CommentResponseDto result = itemService.addComment(1L, 2L, commentDto);
+        assertThat(result).isNotNull();
+        assertThat(result.getText()).isEqualTo("Отличная вещь!");
+    }
+
+    @Test
+    void addComment_shouldThrowValidationException_whenUserNotBooked() {
+        User author = new User(2L, "Author", "author@mail.com");
+        CommentCreateDto commentDto = new CommentCreateDto("Отличная вещь!");
+        when(userRepository.findById(2L)).thenReturn(Optional.of(author));
+        when(itemRepository.findById(1L)).thenReturn(Optional.of(item));
+        when(bookingRepository.existsByItemIdAndBookerIdAndEndBefore(anyLong(), anyLong(), any(LocalDateTime.class)))
+                .thenReturn(false);
+        assertThatThrownBy(() -> itemService.addComment(1L, 2L, commentDto))
+                .isInstanceOf(ValidationException.class)
+                .hasMessageContaining("Пользователь не брал эту вещь в аренду или аренда еще не завершена");
+    }
+
+    @Test
+    void search_shouldReturnItems() {
+        when(itemRepository.search("дрель")).thenReturn(List.of(item));
+        List<ItemResponseDto> result = itemService.search("дрель");
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getName()).isEqualTo("Дрель");
+    }
+
+    @Test
+    void search_shouldReturnEmptyList_whenTextIsBlank() {
+        List<ItemResponseDto> result = itemService.search("");
+        assertThat(result).isEmpty();
+        verify(itemRepository, never()).search(anyString());
+    }
+}package ru.practicum.shareit.request;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.boot.test.autoconfigure.orm.jpa.DataJpaTest;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.test.context.ActiveProfiles;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+@DataJpaTest
+@ActiveProfiles("test")
+class ItemRequestRepositoryTest {
+
+    @Autowired
+    private ItemRequestRepository itemRequestRepository;
+    @Autowired
+    private UserRepository userRepository;
+
+    @Test
+    void findByRequestorId_shouldReturnRequests() {
+        User requestor = userRepository.save(new User(null, "Requestor", "requestor@mail.com"));
+        User otherUser = userRepository.save(new User(null, "Other", "other@mail.com"));
+
+        ItemRequest request1 = new ItemRequest(null, "Нужна дрель", requestor, LocalDateTime.now());
+        ItemRequest request2 = new ItemRequest(null, "Нужна отвертка", requestor, LocalDateTime.now());
+        ItemRequest request3 = new ItemRequest(null, "Нужна пила", otherUser, LocalDateTime.now());
+
+        itemRequestRepository.save(request1);
+        itemRequestRepository.save(request2);
+        itemRequestRepository.save(request3);
+
+        Sort sort = Sort.by(Sort.Direction.DESC, "created");
+        List<ItemRequest> requests = itemRequestRepository.findByRequestorId(requestor.getId(), sort);
+        assertThat(requests).hasSize(2);
+        assertThat(requests).extracting(ItemRequest::getDescription)
+                .containsExactlyInAnyOrder("Нужна дрель", "Нужна отвертка");
+    }
+
+    @Test
+    void findAllOther_shouldReturnRequestsFromOtherUsers() {
+        User requestor = userRepository.save(new User(null, "Requestor", "requestor@mail.com"));
+        User otherUser1 = userRepository.save(new User(null, "Other1", "other1@mail.com"));
+        User otherUser2 = userRepository.save(new User(null, "Other2", "other2@mail.com"));
+
+        ItemRequest request1 = new ItemRequest(null, "Нужна дрель", requestor, LocalDateTime.now());
+        ItemRequest request2 = new ItemRequest(null, "Нужна отвертка", otherUser1, LocalDateTime.now());
+        ItemRequest request3 = new ItemRequest(null, "Нужна пила", otherUser2, LocalDateTime.now());
+
+        itemRequestRepository.save(request1);
+        itemRequestRepository.save(request2);
+        itemRequestRepository.save(request3);
+
+        PageRequest pageRequest = PageRequest.of(0, 10);
+        List<ItemRequest> requests = itemRequestRepository.findAllOther(requestor.getId(), pageRequest);
+        assertThat(requests).hasSize(2);
+        assertThat(requests).extracting(ItemRequest::getDescription)
+                .containsExactlyInAnyOrder("Нужна отвертка", "Нужна пила");
+    }
+
+    @Test
+    void findAllOther_shouldReturnEmptyList_whenNoOtherRequests() {
+        User requestor = userRepository.save(new User(null, "Requestor", "requestor@mail.com"));
+
+        ItemRequest request1 = new ItemRequest(null, "Нужна дрель", requestor, LocalDateTime.now());
+        itemRequestRepository.save(request1);
+
+        PageRequest pageRequest = PageRequest.of(0, 10);
+        List<ItemRequest> requests = itemRequestRepository.findAllOther(requestor.getId(), pageRequest);
+        assertThat(requests).isEmpty();
+    }
+}package ru.practicum.shareit.request;
+
+import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.InjectMocks;
+import org.mockito.Mock;
+import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.item.ItemRepository;
+import ru.practicum.shareit.request.dto.ItemRequestDto;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.when;
+
+@ExtendWith(MockitoExtension.class)
+class ItemRequestServiceTest {
+
+    @Mock
+    private ItemRequestRepository requestRepository;
+    @Mock
+    private UserRepository userRepository;
+    @Mock
+    private ItemRepository itemRepository;
+    @InjectMocks
+    private ItemRequestService requestService;
+
+    @Test
+    void create_shouldCreateRequest() {
+        User user = new User(1L, "User", "user@mail.com");
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(requestRepository.save(any(ItemRequest.class))).thenAnswer(invocation -> {
+            ItemRequest r = invocation.getArgument(0);
+            r.setId(1L);
+            return r;
+        });
+
+        ItemRequestDto result = requestService.create(1L, "Нужна дрель");
+        assertThat(result).isNotNull();
+        assertThat(result.getId()).isEqualTo(1L);
+        assertThat(result.getDescription()).isEqualTo("Нужна дрель");
+    }
+
+    @Test
+    void create_shouldThrowNotFoundException_whenUserNotFound() {
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+        assertThatThrownBy(() -> requestService.create(1L, "Нужна дрель"))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Пользователь с id 1 не найден");
+    }
+
+    @Test
+    void findByRequestor_shouldReturnRequests() {
+        User user = new User(1L, "User", "user@mail.com");
+        ItemRequest request = new ItemRequest(1L, "Нужна дрель", user, LocalDateTime.now());
+        List<ItemRequest> requests = List.of(request);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(requestRepository.findByRequestorId(1L, Sort.by(Sort.Direction.DESC, "created")))
+                .thenReturn(requests);
+
+        List<ItemRequestDto> result = requestService.findByRequestor(1L);
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getDescription()).isEqualTo("Нужна дрель");
+    }
+
+    @Test
+    void findAllOther_shouldReturnRequestsFromOtherUsers() {
+        User user = new User(1L, "User", "user@mail.com");
+        User otherUser = new User(2L, "Other", "other@mail.com");
+        ItemRequest request = new ItemRequest(1L, "Нужна дрель", otherUser, LocalDateTime.now());
+        List<ItemRequest> requests = List.of(request);
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(requestRepository.findAllOther(any(Long.class), any(PageRequest.class)))
+                .thenReturn(requests);
+
+        List<ItemRequestDto> result = requestService.findAllOther(1L, 0L, 10);
+        assertThat(result).hasSize(1);
+        assertThat(result.get(0).getDescription()).isEqualTo("Нужна дрель");
+    }
+
+    @Test
+    void findById_shouldReturnRequest() {
+        User user = new User(1L, "User", "user@mail.com");
+        User otherUser = new User(2L, "Other", "other@mail.com");
+        ItemRequest request = new ItemRequest(1L, "Нужна дрель", otherUser, LocalDateTime.now());
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(requestRepository.findById(1L)).thenReturn(Optional.of(request));
+
+        ItemRequestDto result = requestService.findById(1L, 1L);
+        assertThat(result).isNotNull();
+        assertThat(result.getDescription()).isEqualTo("Нужна дрель");
+    }
+
+    @Test
+    void findById_shouldThrowNotFoundException_whenRequestNotFound() {
+        User user = new User(1L, "User", "user@mail.com");
+
+        when(userRepository.findById(1L)).thenReturn(Optional.of(user));
+        when(requestRepository.findById(999L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> requestService.findById(999L, 1L))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Запрос с id 999 не найден");
+    }
+
+    @Test
+    void findByRequestor_shouldThrowNotFoundException_whenUserNotFound() {
+        when(userRepository.findById(1L)).thenReturn(Optional.empty());
+
+        assertThatThrownBy(() -> requestService.findByRequestor(1L))
+                .isInstanceOf(NotFoundException.class)
+                .hasMessageContaining("Пользователь с id 1 не найден");
+    }
+}package ru.practicum.shareit.booking.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import ru.practicum.shareit.booking.BookingStatus;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class BookingResponseDto {
+    private Long id;
+    private LocalDateTime start;
+    private LocalDateTime end;
+    private BookingItemDto item;
+    private BookingUserDto booker;
+    private BookingStatus status;
+}package ru.practicum.shareit.booking.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class BookingShortDto {
+    private Long id;
+    private Long bookerId;
+    private LocalDateTime start;
+    private LocalDateTime end;
+}package ru.practicum.shareit.booking.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class BookingItemDto {
+    private Long id;
+    private String name;
+}package ru.practicum.shareit.booking.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class BookingUserDto {
+    private Long id;
+    private String name;
+}package ru.practicum.shareit.booking.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class BookingCreateDto {
+    private Long itemId;
+    private LocalDateTime start;
+    private LocalDateTime end;
+}package ru.practicum.shareit.booking;
+
+import ru.practicum.shareit.booking.dto.BookingResponseDto;
+import ru.practicum.shareit.booking.dto.BookingCreateDto;
+import java.util.List;
+
+public interface BookingService {
+    BookingResponseDto create(BookingCreateDto bookingCreateDto, Long userId);
+    BookingResponseDto approve(Long bookingId, Long userId, Boolean approved);
+    BookingResponseDto findById(Long bookingId, Long userId);
+    List<BookingResponseDto> findAllByUser(Long userId, BookingState state);
+    List<BookingResponseDto> findAllByOwner(Long userId, BookingState state);
+}package ru.practicum.shareit.booking;
+
+import jakarta.persistence.*;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.user.User;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "bookings")
+public class Booking {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "start_date", nullable = false)
+    private LocalDateTime start;
+
+    @Column(name = "end_date", nullable = false)
+    private LocalDateTime end;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "item_id", nullable = false)
+    private Item item;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "booker_id", nullable = false)
+    private User booker;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private BookingStatus status;
+
+    public Booking() {}
+
+    public Booking(Long id, LocalDateTime start, LocalDateTime end, Item item, User booker, BookingStatus status) {
+        this.id = id;
+        this.start = start;
+        this.end = end;
+        this.item = item;
+        this.booker = booker;
+        this.status = status;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public LocalDateTime getStart() { return start; }
+    public void setStart(LocalDateTime start) { this.start = start; }
+
+    public LocalDateTime getEnd() { return end; }
+    public void setEnd(LocalDateTime end) { this.end = end; }
+
+    public Item getItem() { return item; }
+    public void setItem(Item item) { this.item = item; }
+
+    public User getBooker() { return booker; }
+    public void setBooker(User booker) { this.booker = booker; }
+
+    public BookingStatus getStatus() { return status; }
+    public void setStatus(BookingStatus status) { this.status = status; }
+}package ru.practicum.shareit.booking;
+
+public enum BookingStatus {
+    WAITING,
+    APPROVED,
+    REJECTED,
+    CANCELED
+}package ru.practicum.shareit.booking;
+
+import ru.practicum.shareit.booking.dto.*;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.user.User;
+
+public class BookingMapper {
+
+    public static Booking toBooking(BookingCreateDto dto, Item item, User booker) {
+        if (dto == null) return null;
+        Booking booking = new Booking();
+        booking.setStart(dto.getStart());
+        booking.setEnd(dto.getEnd());
+        booking.setItem(item);
+        booking.setBooker(booker);
+        booking.setStatus(BookingStatus.WAITING);
+        return booking;
+    }
+
+    public static BookingResponseDto toBookingResponseDto(Booking booking) {
+        if (booking == null) return null;
+        return new BookingResponseDto(
+                booking.getId(),
+                booking.getStart(),
+                booking.getEnd(),
+                new BookingItemDto(booking.getItem().getId(), booking.getItem().getName()),
+                new BookingUserDto(booking.getBooker().getId(), booking.getBooker().getName()),
+                booking.getStatus()
+        );
+    }
+
+    public static BookingShortDto toBookingShortDto(Booking booking) {
+        if (booking == null) return null;
+        return new BookingShortDto(
+                booking.getId(),
+                booking.getBooker().getId(),
+                booking.getStart(),
+                booking.getEnd()
+        );
+    }
+}package ru.practicum.shareit.booking;
+
+public enum BookingState {
+    ALL, CURRENT, PAST, FUTURE, WAITING, REJECTED
+}package ru.practicum.shareit.booking;
+
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.booking.dto.BookingCreateDto;
+import ru.practicum.shareit.booking.dto.BookingResponseDto;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/bookings")
+public class BookingController {
+    private final BookingService bookingService;
+
+    public BookingController(BookingService bookingService) {
+        this.bookingService = bookingService;
+    }
+
+    @PostMapping
+    public BookingResponseDto create(
+            @RequestBody BookingCreateDto bookingCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.create(bookingCreateDto, userId);
+    }
+
+    @PatchMapping("/{bookingId}")
+    public BookingResponseDto approve(
+            @PathVariable Long bookingId,
+            @RequestParam Boolean approved,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.approve(bookingId, userId, approved);
+    }
+
+    @GetMapping("/{bookingId}")
+    public BookingResponseDto findById(
+            @PathVariable Long bookingId,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.findById(bookingId, userId);
+    }
+
+    @GetMapping
+    public List<BookingResponseDto> findAllByUser(
+            @RequestParam(defaultValue = "ALL") BookingState state,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.findAllByUser(userId, state);
+    }
+
+    @GetMapping("/owner")
+    public List<BookingResponseDto> findAllByOwner(
+            @RequestParam(defaultValue = "ALL") BookingState state,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.findAllByOwner(userId, state);
+    }
+}package ru.practicum.shareit.booking;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.practicum.shareit.booking.dto.BookingCreateDto;
+import ru.practicum.shareit.booking.dto.BookingResponseDto;
+import ru.practicum.shareit.exception.ForbiddenException;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.exception.ValidationException;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.item.ItemRepository;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional(readOnly = true)
+public class BookingServiceImpl implements BookingService {
+    private final BookingRepository bookingRepository;
+    private final UserRepository userRepository;
+    private final ItemRepository itemRepository;
+
+    public BookingServiceImpl(BookingRepository bookingRepository,
+                              UserRepository userRepository,
+                              ItemRepository itemRepository) {
+        this.bookingRepository = bookingRepository;
+        this.userRepository = userRepository;
+        this.itemRepository = itemRepository;
+    }
+
+    @Override
+    @Transactional
+    public BookingResponseDto create(BookingCreateDto bookingCreateDto, Long userId) {
+        User booker = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = itemRepository.findById(bookingCreateDto.getItemId())
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + bookingCreateDto.getItemId() + " не найдена"));
+
+        if (item.getOwner().getId().equals(userId)) {
+            throw new NotFoundException("Владелец не может бронировать свою вещь");
+        }
+
+        if (!item.getAvailable()) {
+            throw new ValidationException("Вещь недоступна для бронирования");
+        }
+
+        LocalDateTime start = bookingCreateDto.getStart();
+        LocalDateTime end = bookingCreateDto.getEnd();
+
+        if (start.isAfter(end) || start.equals(end)) {
+            throw new ValidationException("Дата начала должна быть раньше даты окончания");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (start.isBefore(now.minusSeconds(5))) {
+            throw new ValidationException("Дата начала не может быть в прошлом");
+        }
+
+        if (bookingRepository.existsOverlappingBooking(item.getId(), start, end)) {
+            throw new ValidationException("Вещь уже забронирована на выбранные даты");
+        }
+
+        Booking booking = BookingMapper.toBooking(bookingCreateDto, item, booker);
+        Booking savedBooking = bookingRepository.save(booking);
+        return BookingMapper.toBookingResponseDto(savedBooking);
+    }
+
+    @Override
+    @Transactional
+    public BookingResponseDto approve(Long bookingId, Long userId, Boolean approved) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
+
+        if (!booking.getItem().getOwner().getId().equals(userId)) {
+            throw new ForbiddenException("Только владелец вещи может подтвердить или отклонить бронирование");
+        }
+
+        if (booking.getStatus() != BookingStatus.WAITING) {
+            throw new ValidationException("Бронирование уже обработано");
+        }
+
+        if (booking.getStart().isBefore(LocalDateTime.now())) {
+            throw new ValidationException("Нельзя изменить статус бронирования с прошедшей датой начала");
+        }
+
+        booking.setStatus(approved ? BookingStatus.APPROVED : BookingStatus.REJECTED);
+        Booking updatedBooking = bookingRepository.save(booking);
+        return BookingMapper.toBookingResponseDto(updatedBooking);
+    }
+
+    @Override
+    public BookingResponseDto findById(Long bookingId, Long userId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
+
+        if (!booking.getBooker().getId().equals(userId) &&
+                !booking.getItem().getOwner().getId().equals(userId)) {
+            throw new ForbiddenException("У вас нет прав на просмотр этого бронирования");
+        }
+
+        return BookingMapper.toBookingResponseDto(booking);
+    }
+
+    @Override
+    public List<BookingResponseDto> findAllByUser(Long userId, BookingState state) {
+        // ИСПРАВЛЕНИЕ: проверяем существование пользователя
+        if (!userRepository.existsById(userId)) {
+            throw new NotFoundException("Пользователь с id " + userId + " не найден");
+        }
+
+        Sort sort = Sort.by(Sort.Direction.DESC, "start");
+        LocalDateTime now = LocalDateTime.now();
+        List<Booking> bookings;
+
+        switch (state) {
+            case ALL:
+                bookings = bookingRepository.findByBookerId(userId, sort);
+                break;
+            case CURRENT:
+                bookings = bookingRepository.findCurrentByBooker(userId, now, sort);
+                break;
+            case PAST:
+                bookings = bookingRepository.findPastByBooker(userId, now, sort);
+                break;
+            case FUTURE:
+                bookings = bookingRepository.findFutureByBooker(userId, now, sort);
+                break;
+            case WAITING:
+                bookings = bookingRepository.findByBookerIdAndStatus(userId, BookingStatus.WAITING, sort);
+                break;
+            case REJECTED:
+                bookings = bookingRepository.findByBookerIdAndStatus(userId, BookingStatus.REJECTED, sort);
+                break;
+            default:
+                bookings = List.of();
+        }
+
+        return bookings.stream()
+                .map(BookingMapper::toBookingResponseDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<BookingResponseDto> findAllByOwner(Long userId, BookingState state) {
+        // ИСПРАВЛЕНИЕ: проверяем существование пользователя
+        if (!userRepository.existsById(userId)) {
+            throw new NotFoundException("Пользователь с id " + userId + " не найден");
+        }
+
+        Sort sort = Sort.by(Sort.Direction.DESC, "start");
+        LocalDateTime now = LocalDateTime.now();
+        List<Booking> bookings;
+
+        switch (state) {
+            case ALL:
+                bookings = bookingRepository.findByOwnerId(userId, sort);
+                break;
+            case CURRENT:
+                bookings = bookingRepository.findCurrentByOwner(userId, now, sort);
+                break;
+            case PAST:
+                bookings = bookingRepository.findPastByOwner(userId, now, sort);
+                break;
+            case FUTURE:
+                bookings = bookingRepository.findFutureByOwner(userId, now, sort);
+                break;
+            case WAITING:
+                bookings = bookingRepository.findByOwnerIdAndStatus(userId, BookingStatus.WAITING, sort);
+                break;
+            case REJECTED:
+                bookings = bookingRepository.findByOwnerIdAndStatus(userId, BookingStatus.REJECTED, sort);
+                break;
+            default:
+                bookings = List.of();
+        }
+
+        return bookings.stream()
+                .map(BookingMapper::toBookingResponseDto)
+                .collect(Collectors.toList());
+    }
+}package ru.practicum.shareit.booking;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Repository
+public interface BookingRepository extends JpaRepository<Booking, Long> {
+    List<Booking> findByBookerId(Long bookerId, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId")
+    List<Booking> findByOwnerId(@Param("ownerId") Long ownerId, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.booker.id = :bookerId AND b.start <= :now AND b.end >= :now")
+    List<Booking> findCurrentByBooker(@Param("bookerId") Long bookerId, @Param("now") LocalDateTime now, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.booker.id = :bookerId AND b.start > :now")
+    List<Booking> findFutureByBooker(@Param("bookerId") Long bookerId, @Param("now") LocalDateTime now, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.booker.id = :bookerId AND b.end < :now")
+    List<Booking> findPastByBooker(@Param("bookerId") Long bookerId, @Param("now") LocalDateTime now, Sort sort);
+
+    List<Booking> findByBookerIdAndStatus(Long bookerId, BookingStatus status, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.start <= :now AND b.end >= :now")
+    List<Booking> findCurrentByOwner(@Param("ownerId") Long ownerId, @Param("now") LocalDateTime now, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.start > :now")
+    List<Booking> findFutureByOwner(@Param("ownerId") Long ownerId, @Param("now") LocalDateTime now, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.end < :now")
+    List<Booking> findPastByOwner(@Param("ownerId") Long ownerId, @Param("now") LocalDateTime now, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.status = :status")
+    List<Booking> findByOwnerIdAndStatus(@Param("ownerId") Long ownerId, @Param("status") BookingStatus status, Sort sort);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.id IN :itemIds")
+    List<Booking> findAllByItemIds(@Param("itemIds") List<Long> itemIds);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.id = :itemId AND b.status = 'APPROVED' AND b.end < :now ORDER BY b.end DESC")
+    List<Booking> findLastBooking(@Param("itemId") Long itemId, @Param("now") LocalDateTime now);
+
+    @Query("SELECT b FROM Booking b WHERE b.item.id = :itemId AND b.status = 'APPROVED' AND b.start > :now ORDER BY b.start ASC")
+    List<Booking> findNextBooking(@Param("itemId") Long itemId, @Param("now") LocalDateTime now);
+
+    @Query("SELECT COUNT(b) > 0 FROM Booking b WHERE b.item.id = :itemId AND b.booker.id = :bookerId AND b.end < :now AND b.status = 'APPROVED'")
+    boolean existsByItemIdAndBookerIdAndEndBefore(@Param("itemId") Long itemId, @Param("bookerId") Long bookerId, @Param("now") LocalDateTime now);
+
+    @Query("SELECT COUNT(b) > 0 FROM Booking b WHERE b.item.id = :itemId AND b.status IN ('APPROVED', 'WAITING') AND b.start < :end AND b.end > :start")
+    boolean existsOverlappingBooking(@Param("itemId") Long itemId, @Param("start") LocalDateTime start, @Param("end") LocalDateTime end);
+}package ru.practicum.shareit.user.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class UserDto {
+    private Long id;
+    private String name;
+    private String email;
+}package ru.practicum.shareit.user;
+
+import ru.practicum.shareit.user.dto.UserDto;
+import java.util.List;
+
+public interface UserService {
+    List<UserDto> getAllUsers();
+    UserDto getUserById(Long userId);
+    UserDto createUser(UserDto userDto);
+    UserDto updateUser(Long userId, UserDto userDto);
+    void deleteUser(Long userId);
+}package ru.practicum.shareit.user;
+
+import jakarta.persistence.*;
+import java.util.Objects;
+
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false)
+    private String name;
+
+    @Column(name = "email", nullable = false, unique = true)
+    private String email;
+
+    public User() {}
+
+    public User(Long id, String name, String email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+
+    @Override
+    public boolean equals(Object o) {
+        if (this == o) return true;
+        if (o == null || getClass() != o.getClass()) return false;
+        User user = (User) o;
+        return Objects.equals(id, user.id) && Objects.equals(email, user.email);
+    }
+
+    @Override
+    public int hashCode() {
+        return Objects.hash(id, email);
+    }
+}package ru.practicum.shareit.user;
+
+import ru.practicum.shareit.user.dto.UserDto;
+
+public class UserMapper {
+    public static UserDto toDto(User user) {
+        if (user == null) return null;
+        return new UserDto(user.getId(), user.getName(), user.getEmail());
+    }
+
+    public static User toEntity(UserDto dto) {
+        if (dto == null) return null;
+        User user = new User();
+        user.setId(dto.getId());
+        user.setName(dto.getName());
+        user.setEmail(dto.getEmail());
+        return user;
+    }
+}package ru.practicum.shareit.user;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.practicum.shareit.exception.DuplicateEmailException;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.user.dto.UserDto;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+public class UserServiceImpl implements UserService {
+
+    private final UserRepository userRepository;
+
+    @Override
+    public List<UserDto> getAllUsers() {
+        return userRepository.findAll().stream()
+                .map(UserMapper::toDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public UserDto getUserById(Long userId) {
+        return UserMapper.toDto(userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден")));
+    }
+
+    @Override
+    @Transactional
+    public UserDto createUser(UserDto userDto) {
+        checkEmailDuplicate(userDto.getEmail());
+        User user = UserMapper.toEntity(userDto);
+        return UserMapper.toDto(userRepository.save(user));
+    }
+
+    @Override
+    @Transactional
+    public UserDto updateUser(Long userId, UserDto userDto) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        if (userDto.getEmail() != null) {
+            checkEmailDuplicate(userDto.getEmail());
+            user.setEmail(userDto.getEmail());
+        }
+        if (userDto.getName() != null) {
+            user.setName(userDto.getName());
+        }
+
+        return UserMapper.toDto(userRepository.save(user));
+    }
+
+    @Override
+    @Transactional
+    public void deleteUser(Long userId) {
+        if (!userRepository.existsById(userId)) {
+            throw new NotFoundException("Пользователь с id " + userId + " не найден");
+        }
+        userRepository.deleteById(userId);
+    }
+
+    private void checkEmailDuplicate(String email) {
+        if (userRepository.existsByEmail(email)) {
+            throw new DuplicateEmailException("Пользователь с email " + email + " уже существует");
+        }
+    }
+}package ru.practicum.shareit.user;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    boolean existsByEmail(String email);
+}package ru.practicum.shareit.user;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.user.dto.UserDto;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/users")
+@RequiredArgsConstructor
+@Slf4j
+public class UserController {
+
+    private final UserService userService;
+
+    @GetMapping
+    public List<UserDto> getAllUsers() {
+        log.info("GET /users: получение всех пользователей");
+        return userService.getAllUsers();
+    }
+
+    @GetMapping("/{userId}")
+    public UserDto getUserById(@PathVariable Long userId) {
+        log.info("GET /users/{}: получение пользователя по ID", userId);
+        return userService.getUserById(userId);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserDto createUser(@RequestBody UserDto userDto) {
+        log.info("POST /users: создание пользователя {}", userDto.getEmail());
+        return userService.createUser(userDto);
+    }
+
+    @PatchMapping("/{userId}")
+    public UserDto updateUser(@PathVariable Long userId,
+                              @RequestBody UserDto userDto) {
+        log.info("PATCH /users/{}: обновление пользователя", userId);
+        return userService.updateUser(userId, userDto);
+    }
+
+    @DeleteMapping("/{userId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void deleteUser(@PathVariable Long userId) {
+        log.info("DELETE /users/{}: удаление пользователя", userId);
+        userService.deleteUser(userId);
+    }
+}package ru.practicum.shareit;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ShareItServerApp {
+    public static void main(String[] args) {
+        SpringApplication.run(ShareItServerApp.class, args);
+    }
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemCreateDto {
+    private String name;
+    private String description;
+    private Boolean available;
+    private Long requestId;
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class CommentResponseDto {
+    private Long id;
+    private String text;
+    private String authorName;
+    private LocalDateTime created;
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import ru.practicum.shareit.booking.dto.BookingShortDto;
+
+import java.util.List;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemResponseWithBookingDto {
+    private Long id;
+    private String name;
+    private String description;
+    private Boolean available;
+    private Long requestId;
+    private BookingShortDto lastBooking;
+    private BookingShortDto nextBooking;
+    private List<CommentResponseDto> comments;
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class CommentCreateDto {
+    private String text;
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemResponseDto {
+    private Long id;
+    private String name;
+    private String description;
+    private Boolean available;
+    private Long requestId;
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemUpdateDto {
+    private String name;
+    private String description;
+    private Boolean available;
+}package ru.practicum.shareit.item.comment;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+
+@Repository
+public interface CommentRepository extends JpaRepository<Comment, Long> {
+    List<Comment> findByItemId(Long itemId);
+
+    @Query("SELECT c FROM Comment c WHERE c.item.id IN :itemIds")
+    List<Comment> findAllByItemIds(@Param("itemIds") List<Long> itemIds);
+}package ru.practicum.shareit.item.comment;
+
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.item.dto.CommentCreateDto;
+import ru.practicum.shareit.item.dto.CommentResponseDto;
+import ru.practicum.shareit.user.User;
+import java.time.LocalDateTime;
+
+public class CommentMapper {
+
+    public static Comment toComment(CommentCreateDto dto, Item item, User author) {
+        if (dto == null) return null;
+        Comment comment = new Comment();
+        comment.setText(dto.getText());
+        comment.setItem(item);
+        comment.setAuthor(author);
+        comment.setCreated(LocalDateTime.now());
+        return comment;
+    }
+
+    public static CommentResponseDto toCommentResponseDto(Comment comment) {
+        if (comment == null) return null;
+        return new CommentResponseDto(
+                comment.getId(),
+                comment.getText(),
+                comment.getAuthor().getName(),
+                comment.getCreated()
+        );
+    }
+}package ru.practicum.shareit.item.comment;
+
+import jakarta.persistence.*;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.user.User;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "comments")
+public class Comment {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "text", nullable = false)
+    private String text;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "item_id", nullable = false)
+    private Item item;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "author_id", nullable = false)
+    private User author;
+
+    @Column(name = "created", nullable = false)
+    private LocalDateTime created;
+
+    public Comment() {}
+
+    public Comment(Long id, String text, Item item, User author, LocalDateTime created) {
+        this.id = id;
+        this.text = text;
+        this.item = item;
+        this.author = author;
+        this.created = created;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getText() { return text; }
+    public void setText(String text) { this.text = text; }
+
+    public Item getItem() { return item; }
+    public void setItem(Item item) { this.item = item; }
+
+    public User getAuthor() { return author; }
+    public void setAuthor(User author) { this.author = author; }
+
+    public LocalDateTime getCreated() { return created; }
+    public void setCreated(LocalDateTime created) { this.created = created; }
+}package ru.practicum.shareit.item;
+
+import ru.practicum.shareit.booking.dto.BookingShortDto;
+import ru.practicum.shareit.item.dto.*;
+import ru.practicum.shareit.request.ItemRequest;
+import ru.practicum.shareit.user.User;
+import java.util.List;
+
+public class ItemMapper {
+
+    public static ItemResponseDto toItemResponseDto(Item item) {
+        if (item == null) return null;
+        return new ItemResponseDto(
+                item.getId(),
+                item.getName(),
+                item.getDescription(),
+                item.getAvailable(),
+                item.getRequest() != null ? item.getRequest().getId() : null
+        );
+    }
+
+    public static ItemResponseWithBookingDto toItemResponseWithBookingDto(Item item, BookingShortDto lastBooking,
+                                                                          BookingShortDto nextBooking,
+                                                                          List<CommentResponseDto> comments) {
+        if (item == null) return null;
+        ItemResponseWithBookingDto dto = new ItemResponseWithBookingDto();
+        dto.setId(item.getId());
+        dto.setName(item.getName());
+        dto.setDescription(item.getDescription());
+        dto.setAvailable(item.getAvailable());
+        dto.setRequestId(item.getRequest() != null ? item.getRequest().getId() : null);
+        dto.setLastBooking(lastBooking);
+        dto.setNextBooking(nextBooking);
+        dto.setComments(comments != null ? comments : List.of());
+        return dto;
+    }
+
+    public static Item toItem(ItemCreateDto dto, User owner) {
+        if (dto == null) return null;
+        Item item = new Item();
+        item.setName(dto.getName());
+        item.setDescription(dto.getDescription());
+        item.setAvailable(dto.getAvailable());
+        item.setOwner(owner);
+        return item;
+    }
+
+    public static Item toItem(ItemCreateDto dto, User owner, ItemRequest request) {
+        Item item = toItem(dto, owner);
+        if (item != null) {
+            item.setRequest(request);
+        }
+        return item;
+    }
+
+    public static Item updateItem(Item existingItem, ItemUpdateDto dto) {
+        if (dto == null) return existingItem;
+        if (dto.getName() != null) {
+            existingItem.setName(dto.getName());
+        }
+        if (dto.getDescription() != null) {
+            existingItem.setDescription(dto.getDescription());
+        }
+        if (dto.getAvailable() != null) {
+            existingItem.setAvailable(dto.getAvailable());
+        }
+        return existingItem;
+    }
+}package ru.practicum.shareit.item;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+
+@Repository
+public interface ItemRepository extends JpaRepository<Item, Long> {
+    List<Item> findByOwnerId(Long ownerId);
+
+    @Query("SELECT i FROM Item i " +
+            "WHERE (UPPER(i.name) LIKE UPPER(CONCAT('%', :text, '%')) " +
+            "OR UPPER(i.description) LIKE UPPER(CONCAT('%', :text, '%'))) " +
+            "AND i.available = true")
+    List<Item> search(@Param("text") String text);
+
+    List<Item> findByRequestId(Long requestId);
+}package ru.practicum.shareit.item;
+
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.item.dto.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/items")
+public class ItemController {
+    private final ItemService itemService;
+
+    public ItemController(ItemService itemService) {
+        this.itemService = itemService;
+    }
+
+    @GetMapping
+    public List<ItemResponseWithBookingDto> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
+        return itemService.findByOwner(userId);
+    }
+
+    @GetMapping("/{itemId}")
+    public ItemResponseWithBookingDto findById(
+            @PathVariable Long itemId,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.findById(itemId, userId);
+    }
+
+    @PostMapping
+    public ItemResponseDto create(
+            @RequestBody ItemCreateDto itemCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.create(itemCreateDto, userId);
+    }
+
+    @PatchMapping("/{itemId}")
+    public ItemResponseDto update(
+            @PathVariable Long itemId,
+            @RequestBody ItemUpdateDto itemUpdateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.update(itemId, itemUpdateDto, userId);
+    }
+
+    @GetMapping("/search")
+    public List<ItemResponseDto> search(@RequestParam(required = false) String text) {
+        return itemService.search(text);
+    }
+
+    @PostMapping("/{itemId}/comment")
+    public CommentResponseDto addComment(
+            @PathVariable Long itemId,
+            @RequestBody CommentCreateDto commentCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.addComment(itemId, userId, commentCreateDto);
+    }
+}package ru.practicum.shareit.item;
+
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.practicum.shareit.booking.Booking;
+import ru.practicum.shareit.booking.BookingMapper;
+import ru.practicum.shareit.booking.BookingRepository;
+import ru.practicum.shareit.booking.BookingStatus;
+import ru.practicum.shareit.booking.dto.BookingShortDto;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.exception.ValidationException;
+import ru.practicum.shareit.item.comment.Comment;
+import ru.practicum.shareit.item.comment.CommentMapper;
+import ru.practicum.shareit.item.comment.CommentRepository;
+import ru.practicum.shareit.item.dto.*;
+import ru.practicum.shareit.request.ItemRequest;
+import ru.practicum.shareit.request.ItemRequestRepository;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional(readOnly = true)
+public class ItemService {
+    private final ItemRepository itemRepository;
+    private final UserRepository userRepository;
+    private final BookingRepository bookingRepository;
+    private final CommentRepository commentRepository;
+    private final ItemRequestRepository itemRequestRepository;
+
+    public ItemService(ItemRepository itemRepository, UserRepository userRepository,
+                       BookingRepository bookingRepository, CommentRepository commentRepository,
+                       ItemRequestRepository itemRequestRepository) {
+        this.itemRepository = itemRepository;
+        this.userRepository = userRepository;
+        this.bookingRepository = bookingRepository;
+        this.commentRepository = commentRepository;
+        this.itemRequestRepository = itemRequestRepository;
+    }
+
+    @Transactional
+    public ItemResponseDto create(ItemCreateDto itemCreateDto, Long userId) {
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = ItemMapper.toItem(itemCreateDto, owner);
+
+        if (itemCreateDto.getRequestId() != null) {
+            ItemRequest request = itemRequestRepository.findById(itemCreateDto.getRequestId())
+                    .orElseThrow(() -> new NotFoundException("Запрос с id " + itemCreateDto.getRequestId() + " не найден"));
+            item.setRequest(request);
+        }
+
+        Item createdItem = itemRepository.save(item);
+        return ItemMapper.toItemResponseDto(createdItem);
+    }
+
+    @Transactional
+    public ItemResponseDto update(Long itemId, ItemUpdateDto itemUpdateDto, Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item existingItem = itemRepository.findById(itemId)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + itemId + " не найдена"));
+
+        if (!existingItem.getOwner().getId().equals(userId)) {
+            throw new NotFoundException("Пользователь не является владельцем вещи");
+        }
+
+        Item updatedItem = ItemMapper.updateItem(existingItem, itemUpdateDto);
+        Item result = itemRepository.save(updatedItem);
+        return ItemMapper.toItemResponseDto(result);
+    }
+
+    public ItemResponseWithBookingDto findById(Long id, Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = itemRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + id + " не найдена"));
+
+        LocalDateTime now = LocalDateTime.now();
+
+        BookingShortDto lastBooking = null;
+        BookingShortDto nextBooking = null;
+
+        if (item.getOwner().getId().equals(userId)) {
+            List<Booking> lastBookings = bookingRepository.findLastBooking(item.getId(), now);
+            List<Booking> nextBookings = bookingRepository.findNextBooking(item.getId(), now);
+            lastBooking = lastBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(lastBookings.get(0));
+            nextBooking = nextBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(nextBookings.get(0));
+        }
+
+        List<CommentResponseDto> comments = commentRepository.findByItemId(item.getId()).stream()
+                .map(CommentMapper::toCommentResponseDto)
+                .collect(Collectors.toList());
+
+        return ItemMapper.toItemResponseWithBookingDto(item, lastBooking, nextBooking, comments);
+    }
+
+    public List<ItemResponseWithBookingDto> findByOwner(Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        List<Item> items = itemRepository.findByOwnerId(userId);
+        List<Long> itemIds = items.stream().map(Item::getId).collect(Collectors.toList());
+
+        List<Booking> allBookings = bookingRepository.findAllByItemIds(itemIds);
+        List<Comment> allComments = commentRepository.findAllByItemIds(itemIds);
+
+        Map<Long, List<Booking>> bookingsByItem = allBookings.stream()
+                .collect(Collectors.groupingBy(b -> b.getItem().getId()));
+        Map<Long, List<Comment>> commentsByItem = allComments.stream()
+                .collect(Collectors.groupingBy(c -> c.getItem().getId()));
+
+        LocalDateTime now = LocalDateTime.now();
+
+        return items.stream()
+                .map(item -> {
+                    List<Booking> itemBookings = bookingsByItem.getOrDefault(item.getId(), List.of());
+                    List<Comment> itemComments = commentsByItem.getOrDefault(item.getId(), List.of());
+
+                    BookingShortDto lastBooking = null;
+                    BookingShortDto nextBooking = null;
+
+                    if (item.getOwner().getId().equals(userId)) {
+                        List<Booking> lastBookings = itemBookings.stream()
+                                .filter(b -> b.getStatus() == BookingStatus.APPROVED && b.getEnd().isBefore(now))
+                                .sorted(Comparator.comparing(Booking::getEnd).reversed())
+                                .collect(Collectors.toList());
+                        List<Booking> nextBookings = itemBookings.stream()
+                                .filter(b -> b.getStatus() == BookingStatus.APPROVED && b.getStart().isAfter(now))
+                                .sorted(Comparator.comparing(Booking::getStart))
+                                .collect(Collectors.toList());
+
+                        lastBooking = lastBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(lastBookings.get(0));
+                        nextBooking = nextBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(nextBookings.get(0));
+                    }
+
+                    List<CommentResponseDto> commentDtos = itemComments.stream()
+                            .map(CommentMapper::toCommentResponseDto)
+                            .collect(Collectors.toList());
+
+                    return ItemMapper.toItemResponseWithBookingDto(item, lastBooking, nextBooking, commentDtos);
+                })
+                .collect(Collectors.toList());
+    }
+
+    public List<ItemResponseDto> search(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        return itemRepository.search(text).stream()
+                .map(ItemMapper::toItemResponseDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public CommentResponseDto addComment(Long itemId, Long userId, CommentCreateDto commentCreateDto) {
+        User author = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = itemRepository.findById(itemId)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + itemId + " не найдена"));
+
+        boolean hasBooked = bookingRepository.existsByItemIdAndBookerIdAndEndBefore(
+                itemId, userId, LocalDateTime.now()
+        );
+
+        if (!hasBooked) {
+            throw new ValidationException("Пользователь не брал эту вещь в аренду или аренда еще не завершена");
+        }
+
+        Comment comment = CommentMapper.toComment(commentCreateDto, item, author);
+        Comment savedComment = commentRepository.save(comment);
+        return CommentMapper.toCommentResponseDto(savedComment);
+    }
+}package ru.practicum.shareit.item;
+
+import jakarta.persistence.*;
+import ru.practicum.shareit.request.ItemRequest;
+import ru.practicum.shareit.user.User;
+
+@Entity
+@Table(name = "items")
+public class Item {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false)
+    private String name;
+
+    @Column(name = "description")
+    private String description;
+
+    @Column(name = "is_available", nullable = false)
+    private Boolean available;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", nullable = false)
+    private User owner;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "request_id")
+    private ItemRequest request;
+
+    public Item() {}
+
+    public Item(Long id, String name, String description, Boolean available, User owner, ItemRequest request) {
+        this.id = id;
+        this.name = name;
+        this.description = description;
+        this.available = available;
+        this.owner = owner;
+        this.request = request;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public Boolean getAvailable() { return available; }
+    public void setAvailable(Boolean available) { this.available = available; }
+
+    public User getOwner() { return owner; }
+    public void setOwner(User owner) { this.owner = owner; }
+
+    public ItemRequest getRequest() { return request; }
+    public void setRequest(ItemRequest request) { this.request = request; }
+}package ru.practicum.shareit.request.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+import ru.practicum.shareit.item.dto.ItemResponseDto;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemRequestDto {
+    private Long id;
+    private String description;
+    private LocalDateTime created;
+    private List<ItemResponseDto> items;
+}package ru.practicum.shareit.request;
+
+import ru.practicum.shareit.item.dto.ItemResponseDto;
+import ru.practicum.shareit.request.dto.ItemRequestDto;
+import ru.practicum.shareit.user.User;
+import java.time.LocalDateTime;
+import java.util.List;
+
+public class ItemRequestMapper {
+
+    public static ItemRequestDto toItemRequestDto(ItemRequest request) {
+        if (request == null) return null;
+        ItemRequestDto dto = new ItemRequestDto();
+        dto.setId(request.getId());
+        dto.setDescription(request.getDescription());
+        dto.setCreated(request.getCreated());
+        dto.setItems(List.of());
+        return dto;
+    }
+
+    public static ItemRequestDto toItemRequestDto(ItemRequest request, List<ItemResponseDto> items) {
+        if (request == null) return null;
+        ItemRequestDto dto = toItemRequestDto(request);
+        dto.setItems(items != null ? items : List.of());
+        return dto;
+    }
+
+    public static ItemRequest toItemRequest(ItemRequestDto dto, User requestor) {
+        if (dto == null) return null;
+        ItemRequest request = new ItemRequest();
+        request.setDescription(dto.getDescription());
+        request.setRequestor(requestor);
+        request.setCreated(LocalDateTime.now());
+        return request;
+    }
+}package ru.practicum.shareit.request;
+
+import org.springframework.data.domain.PageRequest;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.item.ItemMapper;
+import ru.practicum.shareit.item.ItemRepository;
+import ru.practicum.shareit.item.dto.ItemResponseDto; // <--- ВОТ ЭТОТ ИМПОРТ БЫЛ ПРОПУЩЕН!
+import ru.practicum.shareit.request.dto.ItemRequestDto;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@Transactional(readOnly = true)
+public class ItemRequestService {
+    private final ItemRequestRepository requestRepository;
+    private final UserRepository userRepository;
+    private final ItemRepository itemRepository;
+
+    public ItemRequestService(ItemRequestRepository requestRepository,
+                              UserRepository userRepository,
+                              ItemRepository itemRepository) {
+        this.requestRepository = requestRepository;
+        this.userRepository = userRepository;
+        this.itemRepository = itemRepository;
+    }
+
+    @Transactional
+    public ItemRequestDto create(Long userId, String description) {
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        ItemRequest request = new ItemRequest();
+        request.setDescription(description);
+        request.setRequestor(user);
+        request.setCreated(LocalDateTime.now());
+
+        ItemRequest saved = requestRepository.save(request);
+        ItemRequestDto dto = ItemRequestMapper.toItemRequestDto(saved);
+        dto.setItems(List.of());
+        return dto;
+    }
+
+    public List<ItemRequestDto> findByRequestor(Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Sort sort = Sort.by(Sort.Direction.DESC, "created");
+        List<ItemRequest> requests = requestRepository.findByRequestorId(userId, sort);
+
+        return requests.stream()
+                .map(request -> {
+                    List<Item> items = itemRepository.findByRequestId(request.getId());
+                    List<ItemResponseDto> itemDtos = items.stream()
+                            .map(ItemMapper::toItemResponseDto)
+                            .collect(Collectors.toList());
+                    return ItemRequestMapper.toItemRequestDto(request, itemDtos);
+                })
+                .collect(Collectors.toList());
+    }
+
+    public List<ItemRequestDto> findAllOther(Long userId, Long from, Integer size) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        int page = 0;
+        if (from != null && size != null && size > 0) {
+            page = (int) (from / size);
+        }
+
+        PageRequest pageRequest = PageRequest.of(page, size, Sort.by(Sort.Direction.DESC, "created"));
+        List<ItemRequest> requests = requestRepository.findAllOther(userId, pageRequest);
+
+        return requests.stream()
+                .map(request -> {
+                    List<Item> items = itemRepository.findByRequestId(request.getId());
+                    List<ItemResponseDto> itemDtos = items.stream()
+                            .map(ItemMapper::toItemResponseDto)
+                            .collect(Collectors.toList());
+                    return ItemRequestMapper.toItemRequestDto(request, itemDtos);
+                })
+                .collect(Collectors.toList());
+    }
+
+    public ItemRequestDto findById(Long requestId, Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        ItemRequest request = requestRepository.findById(requestId)
+                .orElseThrow(() -> new NotFoundException("Запрос с id " + requestId + " не найден"));
+
+        List<Item> items = itemRepository.findByRequestId(requestId);
+        List<ItemResponseDto> itemDtos = items.stream()
+                .map(ItemMapper::toItemResponseDto)
+                .collect(Collectors.toList());
+
+        return ItemRequestMapper.toItemRequestDto(request, itemDtos);
+    }
+}package ru.practicum.shareit.request;
+
+import jakarta.persistence.*;
+import ru.practicum.shareit.user.User;
+import java.time.LocalDateTime;
+
+@Entity
+@Table(name = "requests")
+public class ItemRequest {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "description", nullable = false)
+    private String description;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "requestor_id", nullable = false)
+    private User requestor;
+
+    @Column(name = "created", nullable = false)
+    private LocalDateTime created;
+
+    public ItemRequest() {}
+
+    public ItemRequest(Long id, String description, User requestor, LocalDateTime created) {
+        this.id = id;
+        this.description = description;
+        this.requestor = requestor;
+        this.created = created;
+    }
+
+    public Long getId() { return id; }
+    public void setId(Long id) { this.id = id; }
+
+    public String getDescription() { return description; }
+    public void setDescription(String description) { this.description = description; }
+
+    public User getRequestor() { return requestor; }
+    public void setRequestor(User requestor) { this.requestor = requestor; }
+
+    public LocalDateTime getCreated() { return created; }
+    public void setCreated(LocalDateTime created) { this.created = created; }
+}package ru.practicum.shareit.request;
+
+import org.springframework.data.domain.Pageable;
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+import java.util.List;
+
+@Repository
+public interface ItemRequestRepository extends JpaRepository<ItemRequest, Long> {
+    List<ItemRequest> findByRequestorId(Long requestorId, Sort sort);
+
+    @Query("SELECT r FROM ItemRequest r WHERE r.requestor.id != :userId ORDER BY r.created DESC")
+    List<ItemRequest> findAllOther(@Param("userId") Long userId, Pageable pageable);
+}package ru.practicum.shareit.request;
+
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.request.dto.ItemRequestDto;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/requests")
+public class ItemRequestController {
+    private final ItemRequestService requestService;
+
+    public ItemRequestController(ItemRequestService requestService) {
+        this.requestService = requestService;
+    }
+
+    @PostMapping
+    public ItemRequestDto create(
+            @RequestHeader("X-Sharer-User-Id") Long userId,
+            @RequestBody ItemRequestDto requestDto
+    ) {
+        return requestService.create(userId, requestDto.getDescription());
+    }
+
+    @GetMapping
+    public List<ItemRequestDto> findByRequestor(@RequestHeader("X-Sharer-User-Id") Long userId) {
+        return requestService.findByRequestor(userId);
+    }
+
+    @GetMapping("/all")
+    public List<ItemRequestDto> findAllOther(
+            @RequestHeader("X-Sharer-User-Id") Long userId,
+            @RequestParam(defaultValue = "0") Long from,
+            @RequestParam(defaultValue = "10") Integer size
+    ) {
+        return requestService.findAllOther(userId, from, size);
+    }
+
+    @GetMapping("/{requestId}")
+    public ItemRequestDto findById(
+            @RequestHeader("X-Sharer-User-Id") Long userId,
+            @PathVariable Long requestId
+    ) {
+        return requestService.findById(requestId, userId);
+    }
+}package ru.practicum.shareit.exception;
+
+public class ValidationException extends RuntimeException {
+    public ValidationException(String message) {
+        super(message);
+    }
+}package ru.practicum.shareit.exception;
+
+public class ForbiddenException extends RuntimeException {
+    public ForbiddenException(String message) {
+        super(message);
+    }
+}package ru.practicum.shareit.exception;
+
+public class DuplicateEmailException extends RuntimeException {
+    public DuplicateEmailException(String message) {
+        super(message);
+    }
+}package ru.practicum.shareit.exception;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Map;
+
+@Slf4j
+@RestControllerAdvice
+public class ErrorHandler {
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public Map<String, String> handleNotFound(NotFoundException e) {
+        log.error("404 Not Found: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
+    }
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public Map<String, String> handleEmailDuplicate(DuplicateEmailException e) {
+        log.error("409 Conflict: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
+    }
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> handleBadRequest(ValidationException e) {
+        log.error("400 Bad Request: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
+    }
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public Map<String, String> handleForbidden(ForbiddenException e) {
+        log.error("403 Forbidden: {}", e.getMessage());
+        return Map.of("error", e.getMessage());
+    }
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> handleMethodArgumentNotValid(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(error -> error.getDefaultMessage())
+                .orElse("Ошибка валидации");
+        log.error("400 Bad Request (Validation): {}", message);
+        return Map.of("error", message);
+    }
+
+    @ExceptionHandler
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public Map<String, String> handleThrowable(Throwable e) {
+        log.error("500 Internal Server Error: ", e);
+        return Map.of("error", "Произошла внутренняя ошибка сервера");
+    }
+}package ru.practicum.shareit.exception;
+
+public class ErrorResponse {
+    private final String error;
+    private final String description;
+
+    public ErrorResponse(String error, String description) {
+        this.error = error;
+        this.description = description;
+    }
+
+    public String getError() {
+        return error;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+}package ru.practicum.shareit.exception;
+
+public class NotFoundException extends RuntimeException {
+    public NotFoundException(String message) {
+        super(message);
+    }
+}package ru.practicum.shareit.booking.dto;
+
+import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+import java.time.LocalDateTime;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class BookItemRequestDto {
+    @NotNull
+    private Long itemId;
+
+    @NotNull
+    @FutureOrPresent
+    private LocalDateTime start;
+
+    @NotNull
+    @Future
+    private LocalDateTime end;
+}package ru.practicum.shareit.booking.dto;
+
+public enum BookingState {
+    ALL, CURRENT, PAST, FUTURE, WAITING, REJECTED
+}package ru.practicum.shareit.booking;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import ru.practicum.shareit.booking.dto.BookItemRequestDto;
+import ru.practicum.shareit.booking.dto.BookingState;
+import ru.practicum.shareit.client.BaseClient;
+
+import java.util.Map;
+
+@Service
+public class BookingClient extends BaseClient {
+
+    @Autowired
+    public BookingClient(@Value("${shareit-server.url}") String serverUrl, RestTemplateBuilder builder) {
+        super(
+                builder
+                        .uriTemplateHandler(new DefaultUriBuilderFactory(serverUrl + "/bookings"))
+                        .requestFactory(HttpComponentsClientHttpRequestFactory.class)
+                        .build()
+        );
+    }
+
+    public ResponseEntity<Object> bookItem(long userId, BookItemRequestDto requestDto) {
+        return post("", userId, requestDto);
+    }
+
+    public ResponseEntity<Object> getBooking(long userId, Long bookingId) {
+        return get("/" + bookingId, userId);
+    }
+
+    public ResponseEntity<Object> getBookings(long userId, BookingState state, Integer from, Integer size) {
+        Map<String, Object> parameters = Map.of(
+                "state", state.name(),
+                "from", from,
+                "size", size
+        );
+        return get("?state={state}&from={from}&size={size}", userId, parameters);
+    }
+
+    public ResponseEntity<Object> getBookingsByOwner(long userId, BookingState state, Integer from, Integer size) {
+        Map<String, Object> parameters = Map.of(
+                "state", state.name(),
+                "from", from,
+                "size", size
+        );
+        return get("/owner?state={state}&from={from}&size={size}", userId, parameters);
+    }
+
+    public ResponseEntity<Object> patchBooking(long userId, Long bookingId, Boolean approved) {
+        Map<String, Object> parameters = Map.of("approved", approved);
+        return patch("/" + bookingId + "?approved={approved}", userId, parameters, null);
+    }
+}package ru.practicum.shareit.booking;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.booking.dto.BookItemRequestDto;
+import ru.practicum.shareit.booking.dto.BookingState;
+
+@RestController
+@RequestMapping("/bookings")
+@RequiredArgsConstructor
+@Slf4j
+public class BookingController {
+
+    private final BookingClient bookingClient;
+
+    @PostMapping
+    public ResponseEntity<Object> create(@Valid @RequestBody BookItemRequestDto requestDto,
+                                         @RequestHeader("X-Sharer-User-Id") Long userId) {
+        log.info("POST /bookings, userId={}", userId);
+        return bookingClient.bookItem(userId, requestDto);
+    }
+
+    @PatchMapping("/{bookingId}")
+    public ResponseEntity<Object> approve(@PathVariable Long bookingId,
+                                          @RequestParam Boolean approved,
+                                          @RequestHeader("X-Sharer-User-Id") Long userId) {
+        log.info("PATCH /bookings/{}, approved={}, userId={}", bookingId, approved, userId);
+        return bookingClient.patchBooking(userId, bookingId, approved);
+    }
+
+    @GetMapping("/{bookingId}")
+    public ResponseEntity<Object> findById(@PathVariable Long bookingId,
+                                           @RequestHeader("X-Sharer-User-Id") Long userId) {
+        log.info("GET /bookings/{}, userId={}", bookingId, userId);
+        return bookingClient.getBooking(userId, bookingId);
+    }
+
+    @GetMapping
+    public ResponseEntity<Object> findAllByUser(@RequestParam(defaultValue = "ALL") BookingState state,
+                                                @RequestHeader("X-Sharer-User-Id") Long userId) {
+        log.info("GET /bookings, state={}, userId={}", state, userId);
+        return bookingClient.getBookings(userId, state, 0, 20);
+    }
+
+    @GetMapping("/owner")
+    public ResponseEntity<Object> findAllByOwner(@RequestParam(defaultValue = "ALL") BookingState state,
+                                                 @RequestHeader("X-Sharer-User-Id") Long userId) {
+        log.info("GET /bookings/owner, state={}, userId={}", state, userId);
+        return bookingClient.getBookingsByOwner(userId, state, 0, 20);
+    }
+}package ru.practicum.shareit.user.dto;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class UserDto {
+    private Long id;
+
+    @NotBlank
+    private String name;
+
+    @NotBlank
+    @Email
+    private String email;
+}package ru.practicum.shareit.user;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import ru.practicum.shareit.client.BaseClient;
+import ru.practicum.shareit.user.dto.UserDto;
+
+@Service
+public class UserClient extends BaseClient {
+
+    @Autowired
+    public UserClient(@Value("${shareit-server.url}") String serverUrl, RestTemplateBuilder builder) {
+        super(
+                builder
+                        .uriTemplateHandler(new DefaultUriBuilderFactory(serverUrl + "/users"))
+                        .requestFactory(HttpComponentsClientHttpRequestFactory.class)
+                        .build()
+        );
+    }
+
+    public ResponseEntity<Object> createUser(UserDto userDto) {
+        return post("", userDto);
+    }
+
+    public ResponseEntity<Object> getAllUsers() {
+        return get("");
+    }
+
+    public ResponseEntity<Object> getUserById(Long userId) {
+        return get("/" + userId);
+    }
+
+    public ResponseEntity<Object> updateUser(Long userId, UserDto userDto) {
+        return patch("/" + userId, userId, userDto);
+    }
+
+    public ResponseEntity<Object> deleteUser(Long userId) {
+        if (userId == null) {
+            throw new IllegalArgumentException("ID пользователя не может быть null");
+        }
+        return delete("/" + userId, userId);
+    }
+}package ru.practicum.shareit.user;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.user.dto.UserDto;
+
+@RestController
+@RequestMapping("/users")
+@RequiredArgsConstructor
+@Slf4j
+public class UserController {
+
+    private final UserClient userClient;
+
+    @GetMapping
+    public ResponseEntity<Object> getAllUsers() {
+        log.info("GET /users");
+        return userClient.getAllUsers();
+    }
+
+    @GetMapping("/{userId}")
+    public ResponseEntity<Object> getUserById(@PathVariable Long userId) {
+        log.info("GET /users/{}", userId);
+        return userClient.getUserById(userId);
+    }
+
+    @PostMapping
+    public ResponseEntity<Object> createUser(@Valid @RequestBody UserDto userDto) {
+        log.info("POST /users");
+        return userClient.createUser(userDto);
+    }
+
+    @PatchMapping("/{userId}")
+    public ResponseEntity<Object> updateUser(@PathVariable Long userId, @RequestBody UserDto userDto) {
+        log.info("PATCH /users/{}", userId);
+        return userClient.updateUser(userId, userDto);
+    }
+
+    @DeleteMapping("/{userId}")
+    public ResponseEntity<Object> deleteUser(@PathVariable Long userId) {
+        log.info("DELETE /users/{}", userId);
+        return userClient.deleteUser(userId);
+    }
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemCreateDto {
+    private String name;
+    private String description;
+    private Boolean available;
+    private Long requestId;
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class CommentCreateDto {
+    private String text;
+}package ru.practicum.shareit.item.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemUpdateDto {
+    private String name;
+    private String description;
+    private Boolean available;
+}package ru.practicum.shareit.item;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import ru.practicum.shareit.client.BaseClient;
+import ru.practicum.shareit.item.dto.CommentCreateDto;
+import ru.practicum.shareit.item.dto.ItemCreateDto;
+import ru.practicum.shareit.item.dto.ItemUpdateDto;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class ItemClient extends BaseClient {
+
+    @Autowired
+    public ItemClient(@Value("${shareit-server.url}") String serverUrl, RestTemplateBuilder builder) {
+        super(
+                builder
+                        .uriTemplateHandler(new DefaultUriBuilderFactory(serverUrl + "/items"))
+                        .requestFactory(HttpComponentsClientHttpRequestFactory.class)
+                        .build()
+        );
+    }
+
+    public ResponseEntity<Object> findAll(Long userId) {
+        return get("", userId);
+    }
+
+    public ResponseEntity<Object> findById(Long userId, Long itemId) {
+        return get("/" + itemId, userId);
+    }
+
+    public ResponseEntity<Object> create(Long userId, ItemCreateDto itemCreateDto) {
+        return post("", userId, itemCreateDto);
+    }
+
+    public ResponseEntity<Object> update(Long userId, Long itemId, ItemUpdateDto itemUpdateDto) {
+        return patch("/" + itemId, userId, itemUpdateDto);
+    }
+
+    public ResponseEntity<Object> search(String text) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("text", text != null ? text : "");
+        return get("/search?text={text}", null, params);
+    }
+
+    public ResponseEntity<Object> addComment(Long userId, Long itemId, CommentCreateDto commentCreateDto) {
+        return post("/" + itemId + "/comment", userId, commentCreateDto);
+    }
+}package ru.practicum.shareit.item;
+
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.item.dto.CommentCreateDto;
+import ru.practicum.shareit.item.dto.ItemCreateDto;
+import ru.practicum.shareit.item.dto.ItemUpdateDto;
+
+@RestController
+@RequestMapping("/items")
+public class ItemController {
+    private final ItemClient itemClient;
+
+    public ItemController(ItemClient itemClient) {
+        this.itemClient = itemClient;
+    }
+
+    @GetMapping
+    public ResponseEntity<Object> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
+        return itemClient.findAll(userId);
+    }
+
+    @GetMapping("/{itemId}")
+    public ResponseEntity<Object> findById(
+            @PathVariable Long itemId,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemClient.findById(userId, itemId);
+    }
+
+    @PostMapping
+    public ResponseEntity<Object> create(
+            @RequestBody ItemCreateDto itemCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemClient.create(userId, itemCreateDto);
+    }
+
+    @PatchMapping("/{itemId}")
+    public ResponseEntity<Object> update(
+            @PathVariable Long itemId,
+            @RequestBody ItemUpdateDto itemUpdateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemClient.update(userId, itemId, itemUpdateDto);
+    }
+
+    @GetMapping("/search")
+    public ResponseEntity<Object> search(@RequestParam(required = false) String text) {
+        return itemClient.search(text);
+    }
+
+    @PostMapping("/{itemId}/comment")
+    public ResponseEntity<Object> addComment(
+            @PathVariable Long itemId,
+            @RequestBody CommentCreateDto commentCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemClient.addComment(userId, itemId, commentCreateDto);
+    }
+}package ru.practicum.shareit.request.dto;
+
+import lombok.AllArgsConstructor;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
+import lombok.Setter;
+
+@Getter
+@Setter
+@NoArgsConstructor
+@AllArgsConstructor
+public class ItemRequestDto {
+    private Long id;
+    private String description;
+    private String created;
+}package ru.practicum.shareit.request;
+
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.client.RestTemplateBuilder;
+import org.springframework.http.ResponseEntity;
+import org.springframework.http.client.HttpComponentsClientHttpRequestFactory;
+import org.springframework.stereotype.Service;
+import org.springframework.web.util.DefaultUriBuilderFactory;
+import ru.practicum.shareit.client.BaseClient;
+import ru.practicum.shareit.request.dto.ItemRequestDto;
+
+import java.util.HashMap;
+import java.util.Map;
+
+@Service
+public class ItemRequestClient extends BaseClient {
+
+    @Autowired
+    public ItemRequestClient(@Value("${shareit-server.url}") String serverUrl, RestTemplateBuilder builder) {
+        super(
+                builder
+                        .uriTemplateHandler(new DefaultUriBuilderFactory(serverUrl + "/requests"))
+                        .requestFactory(HttpComponentsClientHttpRequestFactory.class)
+                        .build()
+        );
+    }
+
+    public ResponseEntity<Object> create(Long userId, ItemRequestDto requestDto) {
+        return post("", userId, requestDto);
+    }
+
+    public ResponseEntity<Object> findByRequestor(Long userId) {
+        return get("", userId);
+    }
+
+    public ResponseEntity<Object> findAllOther(Long userId, Long from, Integer size) {
+        Map<String, Object> params = new HashMap<>();
+        params.put("from", from);
+        params.put("size", size);
+        return get("/all?from={from}&size={size}", userId, params);
+    }
+
+    public ResponseEntity<Object> findById(Long userId, Long requestId) {
+        return get("/" + requestId, userId);
+    }
+}package ru.practicum.shareit.request;
+
+import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.request.dto.ItemRequestDto;
+
+@RestController
+@RequestMapping("/requests")
+@RequiredArgsConstructor
+@Slf4j
+public class ItemRequestController {
+
+    private final ItemRequestClient requestClient;
+
+    @PostMapping
+    public ResponseEntity<Object> create(
+            @RequestHeader("X-Sharer-User-Id") Long userId,
+            @RequestBody ItemRequestDto requestDto
+    ) {
+        log.info("POST /requests, userId={}", userId);
+        return requestClient.create(userId, requestDto);
+    }
+
+    @GetMapping
+    public ResponseEntity<Object> findByRequestor(@RequestHeader("X-Sharer-User-Id") Long userId) {
+        log.info("GET /requests, userId={}", userId);
+        return requestClient.findByRequestor(userId);
+    }
+
+    @GetMapping("/all")
+    public ResponseEntity<Object> findAllOther(
+            @RequestHeader("X-Sharer-User-Id") Long userId,
+            @RequestParam(defaultValue = "0") Long from,
+            @RequestParam(defaultValue = "10") Integer size
+    ) {
+        log.info("GET /requests/all, userId={}", userId);
+        return requestClient.findAllOther(userId, from, size);
+    }
+
+    @GetMapping("/{requestId}")
+    public ResponseEntity<Object> findById(
+            @RequestHeader("X-Sharer-User-Id") Long userId,
+            @PathVariable Long requestId
+    ) {
+        log.info("GET /requests/{}", requestId);
+        return requestClient.findById(userId, requestId);
+    }
+}package ru.practicum.shareit;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ShareItGatewayApp {
+    public static void main(String[] args) {
+        SpringApplication.run(ShareItGatewayApp.class, args);
+    }
+}package ru.practicum.shareit.exception;
+
+import lombok.extern.slf4j.Slf4j;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+import java.util.Map;
+
+@Slf4j
+@RestControllerAdvice
+public class ErrorHandler {
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public Map<String, String> handleValidation(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getFieldErrors().stream()
+                .findFirst()
+                .map(error -> error.getDefaultMessage())
+                .orElse("Ошибка валидации");
+        log.error("400 Bad Request: {}", message);
+        return Map.of("error", message);
+    }
+}package ru.practicum.shareit.client;
+
+import org.springframework.http.*;
+import org.springframework.lang.Nullable;
+import org.springframework.web.client.HttpStatusCodeException;
+import org.springframework.web.client.RestTemplate;
+
+import java.util.List;
+import java.util.Map;
+
+public class BaseClient {
+    protected final RestTemplate rest;
+
+    public BaseClient(RestTemplate rest) {
+        this.rest = rest;
+    }
+
+    protected ResponseEntity<Object> get(String path) {
+        return get(path, null, null);
+    }
+
+    protected ResponseEntity<Object> get(String path, long userId) {
+        return get(path, userId, null);
+    }
+
+    protected ResponseEntity<Object> get(String path, Long userId, @Nullable Map<String, Object> parameters) {
+        return makeAndSendRequest(HttpMethod.GET, path, userId, parameters, null);
+    }
+
+    protected ResponseEntity<Object> post(String path, Object body) {
+        return post(path, null, null, body);
+    }
+
+    protected ResponseEntity<Object> post(String path, long userId, Object body) {
+        return post(path, userId, null, body);
+    }
+
+    protected ResponseEntity<Object> post(String path, Long userId, @Nullable Map<String, Object> parameters, Object body) {
+        return makeAndSendRequest(HttpMethod.POST, path, userId, parameters, body);
+    }
+
+    protected ResponseEntity<Object> patch(String path, long userId, Object body) {
+        return patch(path, userId, null, body);
+    }
+
+    protected ResponseEntity<Object> patch(String path, Long userId, @Nullable Map<String, Object> parameters, Object body) {
+        return makeAndSendRequest(HttpMethod.PATCH, path, userId, parameters, body);
+    }
+
+    protected ResponseEntity<Object> delete(String path, long userId) {
+        return delete(path, userId, null);
+    }
+
+    protected ResponseEntity<Object> delete(String path, Long userId, @Nullable Map<String, Object> parameters) {
+        return makeAndSendRequest(HttpMethod.DELETE, path, userId, parameters, null);
+    }
+
+    private ResponseEntity<Object> makeAndSendRequest(HttpMethod method, String path, Long userId, @Nullable Map<String, Object> parameters, @Nullable Object body) {
+        HttpEntity<Object> requestEntity = new HttpEntity<>(body, defaultHeaders(userId));
+
+        ResponseEntity<Object> shareitServerResponse;
+        try {
+            if (parameters != null) {
+                shareitServerResponse = rest.exchange(path, method, requestEntity, Object.class, parameters);
+            } else {
+                shareitServerResponse = rest.exchange(path, method, requestEntity, Object.class);
+            }
+        } catch (HttpStatusCodeException e) {
+            return ResponseEntity.status(e.getStatusCode()).body(e.getResponseBodyAsString());
+        }
+        return prepareGatewayResponse(shareitServerResponse);
+    }
+
+    private HttpHeaders defaultHeaders(Long userId) {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        headers.setAccept(List.of(MediaType.APPLICATION_JSON));
+        if (userId != null) {
+            headers.set("X-Sharer-User-Id", String.valueOf(userId));
+        }
+        return headers;
+    }
+
+    private static ResponseEntity<Object> prepareGatewayResponse(ResponseEntity<Object> response) {
+        if (response.getStatusCode().is2xxSuccessful()) {
+            return response;
+        }
+        ResponseEntity.BodyBuilder responseBuilder = ResponseEntity.status(response.getStatusCode());
+        if (response.hasBody()) {
+            return responseBuilder.body(response.getBody());
+        }
+        return responseBuilder.build();
+    }
+}package ru.practicum.shareit;
+
+import org.junit.jupiter.api.Test;
+import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.ActiveProfiles;
+
+@SpringBootTest
+@ActiveProfiles("test")
+class ShareItTests {
+
+    @Test
+    void contextLoads() {
+    }
+
+}package ru.practicum.shareit.booking;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BookingResponseDto {
+    private Long id;
+    private LocalDateTime start;
+    private LocalDateTime end;
+    private BookingItemDto item;
+    private BookingUserDto booker;
+    private BookingStatus status;
+}package ru.practicum.shareit.booking;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BookingShortDto {
+    private Long id;
+    private Long bookerId;
+    private LocalDateTime start;
+    private LocalDateTime end;
+}package ru.practicum.shareit.booking;
+
+import java.util.List;
+
+public interface BookingService {
+    BookingResponseDto create(BookingCreateDto bookingCreateDto, Long userId);
+
+    BookingResponseDto approve(Long bookingId, Long userId, Boolean approved);
+
+    BookingResponseDto findById(Long bookingId, Long userId);
+
+    List<BookingResponseDto> findAllByUser(Long userId, BookingState state);
+
+    List<BookingResponseDto> findAllByOwner(Long userId, BookingState state);
+}package ru.practicum.shareit.booking;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BookingItemDto {
+    private Long id;
+    private String name;
+}package ru.practicum.shareit.booking;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.user.User;
+
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+@Table(name = "bookings")
+public class Booking {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "start_date", nullable = false)
+    private LocalDateTime start;
+
+    @Column(name = "end_date", nullable = false)
+    private LocalDateTime end;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "item_id", nullable = false)
+    private Item item;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "booker_id", nullable = false)
+    private User booker;
+
+    @Enumerated(EnumType.STRING)
+    @Column(name = "status", nullable = false)
+    private BookingStatus status;
+}package ru.practicum.shareit.booking;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BookingUserDto {
+    private Long id;
+    private String name;
+}package ru.practicum.shareit.booking;
+
+import jakarta.validation.constraints.Future;
+import jakarta.validation.constraints.FutureOrPresent;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class BookingCreateDto {
+    @NotNull(message = "ID вещи обязателен")
+    private Long itemId;
+
+    @NotNull(message = "Дата начала обязательна")
+    @FutureOrPresent(message = "Дата начала не может быть в прошлом")
+    private LocalDateTime start;
+
+    @NotNull(message = "Дата окончания обязательна")
+    @Future(message = "Дата окончания должна быть в будущем")
+    private LocalDateTime end;
+}package ru.practicum.shareit.booking;
+
+public enum BookingStatus {
+    WAITING,
+    APPROVED,
+    REJECTED,
+    CANCELED
+}package ru.practicum.shareit.booking;
+
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.user.User;
+
+public class BookingMapper {
+
+    public static Booking toBooking(BookingCreateDto bookingCreateDto, Item item, User booker) {
+        if (bookingCreateDto == null) {
+            return null;
+        }
+        Booking booking = new Booking();
+        booking.setStart(bookingCreateDto.getStart());
+        booking.setEnd(bookingCreateDto.getEnd());
+        booking.setItem(item);
+        booking.setBooker(booker);
+        booking.setStatus(BookingStatus.WAITING);
+        return booking;
+    }
+
+    public static BookingResponseDto toBookingResponseDto(Booking booking) {
+        if (booking == null) {
+            return null;
+        }
+        return new BookingResponseDto(
+                booking.getId(),
+                booking.getStart(),
+                booking.getEnd(),
+                new BookingItemDto(booking.getItem().getId(), booking.getItem().getName()),
+                new BookingUserDto(booking.getBooker().getId(), booking.getBooker().getName()),
+                booking.getStatus()
+        );
+    }
+
+    public static BookingShortDto toBookingShortDto(Booking booking) {
+        if (booking == null) {
+            return null;
+        }
+        return new BookingShortDto(
+                booking.getId(),
+                booking.getBooker().getId(),
+                booking.getStart(),
+                booking.getEnd()
+        );
+    }
+}package ru.practicum.shareit.booking;
+
+public enum BookingState {
+    ALL,
+    CURRENT,
+    PAST,
+    FUTURE,
+    WAITING,
+    REJECTED
+}package ru.practicum.shareit.booking;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping(path = "/bookings")
+@RequiredArgsConstructor
+public class BookingController {
+    private final BookingService bookingService;
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public BookingResponseDto create(
+            @Valid @RequestBody BookingCreateDto bookingCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.create(bookingCreateDto, userId);
+    }
+
+    @PatchMapping("/{bookingId}")
+    public BookingResponseDto approve(
+            @PathVariable Long bookingId,
+            @RequestParam Boolean approved,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.approve(bookingId, userId, approved);
+    }
+
+    @GetMapping("/{bookingId}")
+    public BookingResponseDto findById(
+            @PathVariable Long bookingId,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.findById(bookingId, userId);
+    }
+
+    @GetMapping
+    public List<BookingResponseDto> findAllByUser(
+            @RequestParam(defaultValue = "ALL") BookingState state,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.findAllByUser(userId, state);
+    }
+
+    @GetMapping("/owner")
+    public List<BookingResponseDto> findAllByOwner(
+            @RequestParam(defaultValue = "ALL") BookingState state,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return bookingService.findAllByOwner(userId, state);
+    }
+}package ru.practicum.shareit.booking;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Sort;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.practicum.shareit.exception.ForbiddenException;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.exception.ValidationException;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.item.ItemRepository;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class BookingServiceImpl implements BookingService {
+    private final BookingRepository bookingRepository;
+    private final UserRepository userRepository;
+    private final ItemRepository itemRepository;
+
+    @Override
+    @Transactional
+    public BookingResponseDto create(BookingCreateDto bookingCreateDto, Long userId) {
+        User booker = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = itemRepository.findById(bookingCreateDto.getItemId())
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + bookingCreateDto.getItemId() + " не найдена"));
+
+        if (item.getOwner().getId().equals(userId)) {
+            throw new NotFoundException("Владелец не может бронировать свою вещь");
+        }
+
+        if (!item.getAvailable()) {
+            throw new ValidationException("Вещь недоступна для бронирования");
+        }
+
+        if (bookingCreateDto.getStart().isAfter(bookingCreateDto.getEnd()) ||
+                bookingCreateDto.getStart().equals(bookingCreateDto.getEnd())) {
+            throw new ValidationException("Дата начала должна быть раньше даты окончания");
+        }
+
+        LocalDateTime now = LocalDateTime.now();
+        if (bookingCreateDto.getStart().isBefore(now.minusSeconds(5))) {
+            throw new ValidationException("Дата начала не может быть в прошлом");
+        }
+
+        // Проверка пересечения бронирований
+        List<Booking> existingBookings = bookingRepository.findByItemId(bookingCreateDto.getItemId());
+        boolean isOverlapping = existingBookings.stream()
+                .filter(b -> b.getStatus() == BookingStatus.APPROVED || b.getStatus() == BookingStatus.WAITING)
+                .anyMatch(b ->
+                        (bookingCreateDto.getStart().isBefore(b.getEnd()) && bookingCreateDto.getEnd().isAfter(b.getStart()))
+                );
+
+        if (isOverlapping) {
+            throw new ValidationException("Вещь уже забронирована на выбранные даты");
+        }
+
+        Booking booking = BookingMapper.toBooking(bookingCreateDto, item, booker);
+        Booking savedBooking = bookingRepository.save(booking);
+        return BookingMapper.toBookingResponseDto(savedBooking);
+    }
+
+    @Override
+    @Transactional
+    public BookingResponseDto approve(Long bookingId, Long userId, Boolean approved) {
+        // Проверка пользователя УБРАНА по замечанию ревьюера
+
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
+
+        if (!booking.getItem().getOwner().getId().equals(userId)) {
+            throw new ForbiddenException("Только владелец вещи может подтвердить или отклонить бронирование");
+        }
+
+        if (booking.getStatus() != BookingStatus.WAITING) {
+            throw new ValidationException("Бронирование уже обработано");
+        }
+
+        if (booking.getStart().isBefore(LocalDateTime.now())) {
+            throw new ValidationException("Нельзя изменить статус бронирования с прошедшей датой начала");
+        }
+
+        booking.setStatus(approved ? BookingStatus.APPROVED : BookingStatus.REJECTED);
+        Booking updatedBooking = bookingRepository.save(booking);
+        return BookingMapper.toBookingResponseDto(updatedBooking);
+    }
+
+    @Override
+    public BookingResponseDto findById(Long bookingId, Long userId) {
+        Booking booking = bookingRepository.findById(bookingId)
+                .orElseThrow(() -> new NotFoundException("Бронирование с id " + bookingId + " не найдено"));
+
+        if (!booking.getBooker().getId().equals(userId) &&
+                !booking.getItem().getOwner().getId().equals(userId)) {
+            throw new ForbiddenException("У вас нет прав на просмотр этого бронирования");
+        }
+
+        return BookingMapper.toBookingResponseDto(booking);
+    }
+
+    @Override
+    public List<BookingResponseDto> findAllByUser(Long userId, BookingState state) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Sort sort = Sort.by(Sort.Direction.DESC, "start");
+        LocalDateTime now = LocalDateTime.now();
+        List<Booking> bookings;
+
+        switch (state) {
+            case ALL:
+                bookings = bookingRepository.findByBookerId(userId, sort);
+                break;
+            case CURRENT:
+                bookings = bookingRepository.findCurrentByBooker(userId, now, sort);
+                break;
+            case PAST:
+                bookings = bookingRepository.findPastByBooker(userId, now, sort);
+                break;
+            case FUTURE:
+                bookings = bookingRepository.findFutureByBooker(userId, now, sort);
+                break;
+            case WAITING:
+                bookings = bookingRepository.findByBookerIdAndStatus(userId, BookingStatus.WAITING, sort);
+                break;
+            case REJECTED:
+                bookings = bookingRepository.findByBookerIdAndStatus(userId, BookingStatus.REJECTED, sort);
+                break;
+            default:
+                bookings = List.of();
+        }
+
+        return bookings.stream()
+                .map(BookingMapper::toBookingResponseDto)
+                .collect(Collectors.toList());
+    }
+
+    @Override
+    public List<BookingResponseDto> findAllByOwner(Long userId, BookingState state) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Sort sort = Sort.by(Sort.Direction.DESC, "start");
+        LocalDateTime now = LocalDateTime.now();
+        List<Booking> bookings;
+
+        switch (state) {
+            case ALL:
+                bookings = bookingRepository.findByOwnerId(userId, sort);
+                break;
+            case CURRENT:
+                bookings = bookingRepository.findCurrentByOwner(userId, now, sort);
+                break;
+            case PAST:
+                bookings = bookingRepository.findPastByOwner(userId, now, sort);
+                break;
+            case FUTURE:
+                bookings = bookingRepository.findFutureByOwner(userId, now, sort);
+                break;
+            case WAITING:
+                bookings = bookingRepository.findByOwnerIdAndStatus(userId, BookingStatus.WAITING, sort);
+                break;
+            case REJECTED:
+                bookings = bookingRepository.findByOwnerIdAndStatus(userId, BookingStatus.REJECTED, sort);
+                break;
+            default:
+                bookings = List.of();
+        }
+
+        return bookings.stream()
+                .map(BookingMapper::toBookingResponseDto)
+                .collect(Collectors.toList());
+    }
+}package ru.practicum.shareit.booking;
+
+import org.springframework.data.domain.Sort;
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.time.LocalDateTime;
+import java.util.List;
+
+@Repository
+public interface BookingRepository extends JpaRepository<Booking, Long> {
+    // Поиск бронирований по bookerId
+    List<Booking> findByBookerId(Long bookerId, Sort sort);
+
+    // Поиск бронирований по ownerId (владелец вещи)
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId")
+    List<Booking> findByOwnerId(@Param("ownerId") Long ownerId, Sort sort);
+
+    // Поиск текущих бронирований
+    @Query("SELECT b FROM Booking b WHERE b.booker.id = :bookerId AND b.start <= :now AND b.end >= :now")
+    List<Booking> findCurrentByBooker(@Param("bookerId") Long bookerId, @Param("now") LocalDateTime now, Sort sort);
+
+    // Поиск будущих бронирований
+    @Query("SELECT b FROM Booking b WHERE b.booker.id = :bookerId AND b.start > :now")
+    List<Booking> findFutureByBooker(@Param("bookerId") Long bookerId, @Param("now") LocalDateTime now, Sort sort);
+
+    // Поиск прошлых бронирований
+    @Query("SELECT b FROM Booking b WHERE b.booker.id = :bookerId AND b.end < :now")
+    List<Booking> findPastByBooker(@Param("bookerId") Long bookerId, @Param("now") LocalDateTime now, Sort sort);
+
+    // Поиск бронирований по статусу
+    List<Booking> findByBookerIdAndStatus(Long bookerId, BookingStatus status, Sort sort);
+
+    // Поиск текущих бронирований владельца
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.start <= :now AND b.end >= :now")
+    List<Booking> findCurrentByOwner(@Param("ownerId") Long ownerId, @Param("now") LocalDateTime now, Sort sort);
+
+    // Поиск будущих бронирований владельца
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.start > :now")
+    List<Booking> findFutureByOwner(@Param("ownerId") Long ownerId, @Param("now") LocalDateTime now, Sort sort);
+
+    // Поиск прошлых бронирований владельца
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.end < :now")
+    List<Booking> findPastByOwner(@Param("ownerId") Long ownerId, @Param("now") LocalDateTime now, Sort sort);
+
+    // Поиск бронирований владельца по статусу
+    @Query("SELECT b FROM Booking b WHERE b.item.owner.id = :ownerId AND b.status = :status")
+    List<Booking> findByOwnerIdAndStatus(@Param("ownerId") Long ownerId, @Param("status") BookingStatus status, Sort sort);
+
+    // Поиск бронирований по вещи
+    List<Booking> findByItemId(Long itemId);
+
+    // Поиск бронирований по списку вещей (для решения N+1)
+    @Query("SELECT b FROM Booking b WHERE b.item.id IN :itemIds")
+    List<Booking> findAllByItemIds(@Param("itemIds") List<Long> itemIds);
+
+    // Поиск последнего завершенного бронирования
+    @Query("SELECT b FROM Booking b WHERE b.item.id = :itemId AND b.status = 'APPROVED' AND b.end < :now ORDER BY b.end DESC")
+    List<Booking> findLastBooking(@Param("itemId") Long itemId, @Param("now") LocalDateTime now);
+
+    // Поиск следующего бронирования
+    @Query("SELECT b FROM Booking b WHERE b.item.id = :itemId AND b.status = 'APPROVED' AND b.start > :now ORDER BY b.start ASC")
+    List<Booking> findNextBooking(@Param("itemId") Long itemId, @Param("now") LocalDateTime now);
+
+    // Проверка существования завершенного бронирования
+    @Query("SELECT COUNT(b) > 0 FROM Booking b WHERE b.item.id = :itemId AND b.booker.id = :bookerId AND b.end < :now AND b.status = 'APPROVED'")
+    boolean existsByItemIdAndBookerIdAndEndBefore(@Param("itemId") Long itemId, @Param("bookerId") Long bookerId, @Param("now") LocalDateTime now);
+}package ru.practicum.shareit;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class ShareItApp {
+
+    public static void main(String[] args) {
+        SpringApplication.run(ShareItApp.class, args);
+    }
+
+}package ru.practicum.shareit.user;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.practicum.shareit.exception.DuplicateEmailException;
+import ru.practicum.shareit.exception.NotFoundException;
+
+import java.util.List;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class UserService {
+    private final UserRepository userRepository;
+
+    public List<UserDto> findAll() {
+        return userRepository.findAll().stream()
+                .map(UserMapper::toUserDto)
+                .collect(Collectors.toList());
+    }
+
+    public UserDto findById(Long id) {
+        return userRepository.findById(id)
+                .map(UserMapper::toUserDto)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + id + " не найден"));
+    }
+
+    @Transactional
+    public UserDto create(UserDto userDto) {
+        if (userRepository.existsByEmail(userDto.getEmail())) {
+            throw new DuplicateEmailException("Пользователь с email " + userDto.getEmail() + " уже существует");
+        }
+        User user = UserMapper.toUser(userDto);
+        User createdUser = userRepository.save(user);
+        return UserMapper.toUserDto(createdUser);
+    }
+
+    @Transactional
+    public UserDto update(Long id, UserDto userDto) {
+        User existingUser = userRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + id + " не найден"));
+
+        if (userDto.getEmail() != null && !userDto.getEmail().equals(existingUser.getEmail())) {
+            if (userRepository.existsByEmail(userDto.getEmail())) {
+                throw new DuplicateEmailException("Пользователь с email " + userDto.getEmail() + " уже существует");
+            }
+            existingUser.setEmail(userDto.getEmail());
+        }
+
+        if (userDto.getName() != null) {
+            existingUser.setName(userDto.getName());
+        }
+
+        User updatedUser = userRepository.save(existingUser);
+        return UserMapper.toUserDto(updatedUser);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        userRepository.deleteById(id);
+    }
+}package ru.practicum.shareit.user;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+@Table(name = "users")
+public class User {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false)
+    private String name;
+
+    @Column(name = "email", nullable = false, unique = true, length = 512)
+    private String email;
+}package ru.practicum.shareit.user;
+
+public class UserMapper {
+
+    public static UserDto toUserDto(User user) {
+        if (user == null) {
+            return null;
+        }
+        return new UserDto(
+                user.getId(),
+                user.getName(),
+                user.getEmail()
+        );
+    }
+
+    public static User toUser(UserDto userDto) {
+        if (userDto == null) {
+            return null;
+        }
+        User user = new User();
+        user.setId(userDto.getId());
+        user.setName(userDto.getName());
+        user.setEmail(userDto.getEmail());
+        return user;
+    }
+}package ru.practicum.shareit.user;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.stereotype.Repository;
+
+@Repository
+public interface UserRepository extends JpaRepository<User, Long> {
+    boolean existsByEmail(String email);
+}package ru.practicum.shareit.user;
+
+import jakarta.validation.constraints.Email;
+import jakarta.validation.constraints.NotBlank;
+
+public class UserDto {
+    private Long id;
+
+    @NotBlank(message = "Имя не может быть пустым")
+    private String name;
+
+    @Email(message = "Некорректный формат email")
+    @NotBlank(message = "Email не может быть пустым")
+    private String email;
+
+    public UserDto() {
+    }
+
+    public UserDto(Long id, String name, String email) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getEmail() {
+        return email;
+    }
+
+    public void setEmail(String email) {
+        this.email = email;
+    }
+}package ru.practicum.shareit.user;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/users")
+@RequiredArgsConstructor
+public class UserController {
+    private final UserService userService;
+
+    @GetMapping
+    public List<UserDto> findAll() {
+        return userService.findAll();
+    }
+
+    @GetMapping("/{id}")
+    public UserDto findById(@PathVariable Long id) {
+        return userService.findById(id);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public UserDto create(@Valid @RequestBody UserDto userDto) {
+        return userService.create(userDto);
+    }
+
+    @PatchMapping("/{id}")
+    public UserDto update(@PathVariable Long id, @RequestBody UserDto userDto) {
+        return userService.update(id, userDto);
+    }
+
+    @DeleteMapping("/{id}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void delete(@PathVariable Long id) {
+        userService.delete(id);
+    }
+}package ru.practicum.shareit.item;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class ItemCreateDto {
+    @NotBlank(message = "Название не может быть пустым")
+    private String name;
+
+    @NotBlank(message = "Описание не может быть пустым")
+    private String description;
+
+    @NotNull(message = "Статус доступности должен быть указан")
+    private Boolean available;
+
+    private Long requestId;
+}package ru.practicum.shareit.item.comment;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface CommentRepository extends JpaRepository<Comment, Long> {
+    List<Comment> findByItemId(Long itemId);
+
+    @Query("SELECT c FROM Comment c WHERE c.item.id IN :itemIds")
+    List<Comment> findAllByItemIds(@Param("itemIds") List<Long> itemIds);
+}package ru.practicum.shareit.item.comment;
+
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.user.User;
+
+import java.time.LocalDateTime;
+
+public class CommentMapper {
+
+    public static Comment toComment(CommentCreateDto commentCreateDto, Item item, User author) {
+        if (commentCreateDto == null) {
+            return null;
+        }
+        Comment comment = new Comment();
+        comment.setText(commentCreateDto.getText());
+        comment.setItem(item);
+        comment.setAuthor(author);
+        comment.setCreated(LocalDateTime.now());
+        return comment;
+    }
+
+    public static CommentResponseDto toCommentResponseDto(Comment comment) {
+        if (comment == null) {
+            return null;
+        }
+        return new CommentResponseDto(
+                comment.getId(),
+                comment.getText(),
+                comment.getAuthor().getName(),
+                comment.getCreated()
+        );
+    }
+}package ru.practicum.shareit.item.comment;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class CommentResponseDto {
+    private Long id;
+    private String text;
+    private String authorName;
+    private LocalDateTime created;
+}package ru.practicum.shareit.item.comment;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import ru.practicum.shareit.item.Item;
+import ru.practicum.shareit.user.User;
+
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+@Table(name = "comments")
+public class Comment {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "text", nullable = false)
+    private String text;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "item_id", nullable = false)
+    private Item item;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "author_id", nullable = false)
+    private User author;
+
+    @Column(name = "created", nullable = false)
+    private LocalDateTime created;
+}package ru.practicum.shareit.item.comment;
+
+import jakarta.validation.constraints.NotBlank;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class CommentCreateDto {
+    @NotBlank(message = "Текст комментария не может быть пустым")
+    private String text;
+}package ru.practicum.shareit.item;
+
+import ru.practicum.shareit.booking.BookingShortDto;
+import ru.practicum.shareit.item.comment.CommentResponseDto;
+import ru.practicum.shareit.user.User;
+
+import java.util.List;
+
+public class ItemMapper {
+
+    public static ItemResponseDto toItemResponseDto(Item item) {
+        if (item == null) {
+            return null;
+        }
+        return new ItemResponseDto(
+                item.getId(),
+                item.getName(),
+                item.getDescription(),
+                item.getAvailable(),
+                item.getRequest() != null ? item.getRequest().getId() : null
+        );
+    }
+
+    public static ItemResponseWithBookingDto toItemResponseWithBookingDto(Item item, BookingShortDto lastBooking,
+                                                                          BookingShortDto nextBooking,
+                                                                          List<CommentResponseDto> comments) {
+        if (item == null) {
+            return null;
+        }
+        return new ItemResponseWithBookingDto(
+                item.getId(),
+                item.getName(),
+                item.getDescription(),
+                item.getAvailable(),
+                item.getRequest() != null ? item.getRequest().getId() : null,
+                lastBooking,
+                nextBooking,
+                comments != null ? comments : List.of()
+        );
+    }
+
+    public static Item toItem(ItemCreateDto itemCreateDto, User owner) {
+        if (itemCreateDto == null) {
+            return null;
+        }
+        Item item = new Item();
+        item.setName(itemCreateDto.getName());
+        item.setDescription(itemCreateDto.getDescription());
+        item.setAvailable(itemCreateDto.getAvailable());
+        item.setOwner(owner);
+        return item;
+    }
+
+    public static Item updateItem(Item existingItem, ItemUpdateDto itemUpdateDto) {
+        if (itemUpdateDto == null) {
+            return existingItem;
+        }
+
+        if (itemUpdateDto.getName() != null) {
+            existingItem.setName(itemUpdateDto.getName());
+        }
+        if (itemUpdateDto.getDescription() != null) {
+            existingItem.setDescription(itemUpdateDto.getDescription());
+        }
+        if (itemUpdateDto.getAvailable() != null) {
+            existingItem.setAvailable(itemUpdateDto.getAvailable());
+        }
+
+        return existingItem;
+    }
+}package ru.practicum.shareit.item;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import ru.practicum.shareit.booking.BookingShortDto;
+import ru.practicum.shareit.item.comment.CommentResponseDto;
+
+import java.util.List;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class ItemResponseWithBookingDto {
+    private Long id;
+    private String name;
+    private String description;
+    private Boolean available;
+    private Long requestId;
+    private BookingShortDto lastBooking;
+    private BookingShortDto nextBooking;
+    private List<CommentResponseDto> comments;
+}package ru.practicum.shareit.item;
+
+import jakarta.validation.constraints.NotBlank;
+import jakarta.validation.constraints.NotNull;
+
+public class ItemDto {
+    private Long id;
+
+    @NotBlank(message = "Название не может быть пустым")
+    private String name;
+
+    @NotBlank(message = "Описание не может быть пустым")
+    private String description;
+
+    @NotNull(message = "Статус доступности должен быть указан")
+    private Boolean available;
+
+    private Long requestId;
+
+    public ItemDto() {
+    }
+
+    public ItemDto(Long id, String name, String description, Boolean available, Long requestId) {
+        this.id = id;
+        this.name = name;
+        this.description = description;
+        this.available = available;
+        this.requestId = requestId;
+    }
+
+    public Long getId() {
+        return id;
+    }
+
+    public void setId(Long id) {
+        this.id = id;
+    }
+
+    public String getName() {
+        return name;
+    }
+
+    public void setName(String name) {
+        this.name = name;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+
+    public void setDescription(String description) {
+        this.description = description;
+    }
+
+    public Boolean getAvailable() {
+        return available;
+    }
+
+    public void setAvailable(Boolean available) {
+        this.available = available;
+    }
+
+    public Long getRequestId() {
+        return requestId;
+    }
+
+    public void setRequestId(Long requestId) {
+        this.requestId = requestId;
+    }
+}package ru.practicum.shareit.item;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
+import org.springframework.stereotype.Repository;
+
+import java.util.List;
+
+@Repository
+public interface ItemRepository extends JpaRepository<Item, Long> {
+    List<Item> findByOwnerId(Long ownerId);
+
+    @Query("SELECT i FROM Item i " +
+            "WHERE (UPPER(i.name) LIKE UPPER(CONCAT('%', :text, '%')) " +
+            "OR UPPER(i.description) LIKE UPPER(CONCAT('%', :text, '%'))) " +
+            "AND i.available = true")
+    List<Item> search(@Param("text") String text);
+}package ru.practicum.shareit.item;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class ItemResponseDto {
+    private Long id;
+    private String name;
+    private String description;
+    private Boolean available;
+    private Long requestId;
+}package ru.practicum.shareit.item;
+
+import jakarta.validation.Valid;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.*;
+import ru.practicum.shareit.item.comment.CommentCreateDto;
+import ru.practicum.shareit.item.comment.CommentResponseDto;
+
+import java.util.List;
+
+@RestController
+@RequestMapping("/items")
+@RequiredArgsConstructor
+public class ItemController {
+    private final ItemService itemService;
+
+    @GetMapping
+    public List<ItemResponseWithBookingDto> findAll(@RequestHeader("X-Sharer-User-Id") Long userId) {
+        return itemService.findByOwner(userId);
+    }
+
+    @GetMapping("/{itemId}")
+    public ItemResponseWithBookingDto findById(
+            @PathVariable Long itemId,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.findById(itemId, userId);
+    }
+
+    @PostMapping
+    @ResponseStatus(HttpStatus.CREATED)
+    public ItemResponseDto create(
+            @Valid @RequestBody ItemCreateDto itemCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.create(itemCreateDto, userId);
+    }
+
+    @PatchMapping("/{itemId}")
+    public ItemResponseDto update(
+            @PathVariable Long itemId,
+            @RequestBody ItemUpdateDto itemUpdateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.update(itemId, itemUpdateDto, userId);
+    }
+
+    @GetMapping("/search")
+    public List<ItemResponseDto> search(@RequestParam(required = false) String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        return itemService.search(text);
+    }
+
+    @PostMapping("/{itemId}/comment")
+    @ResponseStatus(HttpStatus.CREATED)
+    public CommentResponseDto addComment(
+            @PathVariable Long itemId,
+            @Valid @RequestBody CommentCreateDto commentCreateDto,
+            @RequestHeader("X-Sharer-User-Id") Long userId
+    ) {
+        return itemService.addComment(itemId, userId, commentCreateDto);
+    }
+}package ru.practicum.shareit.item;
+
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+import ru.practicum.shareit.booking.Booking;
+import ru.practicum.shareit.booking.BookingMapper;
+import ru.practicum.shareit.booking.BookingRepository;
+import ru.practicum.shareit.booking.BookingShortDto;
+import ru.practicum.shareit.booking.BookingStatus;
+import ru.practicum.shareit.exception.NotFoundException;
+import ru.practicum.shareit.exception.ValidationException;
+import ru.practicum.shareit.item.comment.*;
+import ru.practicum.shareit.user.User;
+import ru.practicum.shareit.user.UserRepository;
+
+import java.time.LocalDateTime;
+import java.util.*;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class ItemService {
+    private final ItemRepository itemRepository;
+    private final UserRepository userRepository;
+    private final BookingRepository bookingRepository;
+    private final CommentRepository commentRepository;
+
+    @Transactional(readOnly = true)
+    public List<ItemResponseWithBookingDto> findByOwner(Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        List<Item> items = itemRepository.findByOwnerId(userId);
+        List<Long> itemIds = items.stream().map(Item::getId).collect(Collectors.toList());
+
+        List<Booking> allBookings = bookingRepository.findAllByItemIds(itemIds);
+        List<Comment> allComments = commentRepository.findAllByItemIds(itemIds);
+
+        Map<Long, List<Booking>> bookingsByItem = allBookings.stream()
+                .collect(Collectors.groupingBy(b -> b.getItem().getId()));
+        Map<Long, List<Comment>> commentsByItem = allComments.stream()
+                .collect(Collectors.groupingBy(c -> c.getItem().getId()));
+
+        LocalDateTime now = LocalDateTime.now();
+
+        return items.stream()
+                .map(item -> {
+                    List<Booking> itemBookings = bookingsByItem.getOrDefault(item.getId(), List.of());
+                    List<Comment> itemComments = commentsByItem.getOrDefault(item.getId(), List.of());
+
+                    BookingShortDto lastBooking = null;
+                    BookingShortDto nextBooking = null;
+
+                    if (item.getOwner().getId().equals(userId)) {
+                        List<Booking> lastBookings = itemBookings.stream()
+                                .filter(b -> b.getStatus() == BookingStatus.APPROVED && b.getEnd().isBefore(now))
+                                .sorted(Comparator.comparing(Booking::getEnd).reversed())
+                                .collect(Collectors.toList());
+                        List<Booking> nextBookings = itemBookings.stream()
+                                .filter(b -> b.getStatus() == BookingStatus.APPROVED && b.getStart().isAfter(now))
+                                .sorted(Comparator.comparing(Booking::getStart))
+                                .collect(Collectors.toList());
+
+                        lastBooking = lastBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(lastBookings.get(0));
+                        nextBooking = nextBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(nextBookings.get(0));
+                    }
+
+                    List<CommentResponseDto> commentDtos = itemComments.stream()
+                            .map(CommentMapper::toCommentResponseDto)
+                            .collect(Collectors.toList());
+
+                    return ItemMapper.toItemResponseWithBookingDto(item, lastBooking, nextBooking, commentDtos);
+                })
+                .collect(Collectors.toList());
+    }
+
+    @Transactional(readOnly = true)
+    public ItemResponseWithBookingDto findById(Long id, Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = itemRepository.findById(id)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + id + " не найдена"));
+
+        LocalDateTime now = LocalDateTime.now();
+
+        BookingShortDto lastBooking = null;
+        BookingShortDto nextBooking = null;
+
+        if (item.getOwner().getId().equals(userId)) {
+            List<Booking> lastBookings = bookingRepository.findLastBooking(item.getId(), now);
+            List<Booking> nextBookings = bookingRepository.findNextBooking(item.getId(), now);
+            lastBooking = lastBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(lastBookings.get(0));
+            nextBooking = nextBookings.isEmpty() ? null : BookingMapper.toBookingShortDto(nextBookings.get(0));
+        }
+
+        List<CommentResponseDto> comments = commentRepository.findByItemId(item.getId()).stream()
+                .map(CommentMapper::toCommentResponseDto)
+                .collect(Collectors.toList());
+
+        return ItemMapper.toItemResponseWithBookingDto(item, lastBooking, nextBooking, comments);
+    }
+
+    @Transactional
+    public ItemResponseDto create(ItemCreateDto itemCreateDto, Long userId) {
+        User owner = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = ItemMapper.toItem(itemCreateDto, owner);
+        Item createdItem = itemRepository.save(item);
+        return ItemMapper.toItemResponseDto(createdItem);
+    }
+
+    @Transactional
+    public ItemResponseDto update(Long itemId, ItemUpdateDto itemUpdateDto, Long userId) {
+        userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item existingItem = itemRepository.findById(itemId)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + itemId + " не найдена"));
+
+        if (!existingItem.getOwner().getId().equals(userId)) {
+            throw new NotFoundException("Пользователь не является владельцем вещи");
+        }
+
+        Item updatedItem = ItemMapper.updateItem(existingItem, itemUpdateDto);
+        Item result = itemRepository.save(updatedItem);
+        return ItemMapper.toItemResponseDto(result);
+    }
+
+    public List<ItemResponseDto> search(String text) {
+        if (text == null || text.isBlank()) {
+            return List.of();
+        }
+        return itemRepository.search(text).stream()
+                .map(ItemMapper::toItemResponseDto)
+                .collect(Collectors.toList());
+    }
+
+    @Transactional
+    public CommentResponseDto addComment(Long itemId, Long userId, CommentCreateDto commentCreateDto) {
+        User author = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("Пользователь с id " + userId + " не найден"));
+
+        Item item = itemRepository.findById(itemId)
+                .orElseThrow(() -> new NotFoundException("Вещь с id " + itemId + " не найдена"));
+
+        boolean hasBooked = bookingRepository.existsByItemIdAndBookerIdAndEndBefore(
+                itemId, userId, LocalDateTime.now()
+        );
+
+        if (!hasBooked) {
+            throw new ValidationException("Пользователь не брал эту вещь в аренду или аренда еще не завершена");
+        }
+
+        Comment comment = CommentMapper.toComment(commentCreateDto, item, author);
+        Comment savedComment = commentRepository.save(comment);
+        return CommentMapper.toCommentResponseDto(savedComment);
+    }
+}package ru.practicum.shareit.item;
+
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+public class ItemUpdateDto {
+    private String name;
+    private String description;
+    private Boolean available;
+}package ru.practicum.shareit.item;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import ru.practicum.shareit.request.ItemRequest;
+import ru.practicum.shareit.user.User;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+@Table(name = "items")
+public class Item {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "name", nullable = false)
+    private String name;
+
+    @Column(name = "description")
+    private String description;
+
+    @Column(name = "is_available", nullable = false)
+    private Boolean available;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "owner_id", nullable = false)
+    private User owner;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "request_id")
+    private ItemRequest request;
+}package ru.practicum.shareit.request;
+
+import jakarta.persistence.*;
+import lombok.AllArgsConstructor;
+import lombok.Data;
+import lombok.NoArgsConstructor;
+import ru.practicum.shareit.user.User;
+
+import java.time.LocalDateTime;
+
+@Data
+@AllArgsConstructor
+@NoArgsConstructor
+@Entity
+@Table(name = "requests")
+public class ItemRequest {
+    @Id
+    @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+
+    @Column(name = "description", nullable = false)
+    private String description;
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "requestor_id", nullable = false)
+    private User requestor;
+
+    @Column(name = "created", nullable = false)
+    private LocalDateTime created;
+}package ru.practicum.shareit.request;
+
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RestController;
+
+@RestController
+@RequestMapping(path = "/requests")
+public class ItemRequestController {
+}package ru.practicum.shareit.exception;
+
+public class ValidationException extends RuntimeException {
+    public ValidationException(String message) {
+        super(message);
+    }
+}package ru.practicum.shareit.exception;
+
+public class ForbiddenException extends RuntimeException {
+    public ForbiddenException(String message) {
+        super(message);
+    }
+}package ru.practicum.shareit.exception;
+
+public class DuplicateEmailException extends RuntimeException {
+    public DuplicateEmailException(String message) {
+        super(message);
+    }
+}package ru.practicum.shareit.exception;
+
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.MethodArgumentNotValidException;
+import org.springframework.web.bind.MissingRequestHeaderException;
+import org.springframework.web.bind.annotation.ExceptionHandler;
+import org.springframework.web.bind.annotation.ResponseStatus;
+import org.springframework.web.bind.annotation.RestControllerAdvice;
+
+@RestControllerAdvice
+public class ErrorHandler {
+
+    @ExceptionHandler(NotFoundException.class)
+    @ResponseStatus(HttpStatus.NOT_FOUND)
+    public ErrorResponse handleNotFound(NotFoundException e) {
+        return new ErrorResponse("Not Found", e.getMessage());
+    }
+
+    @ExceptionHandler(DuplicateEmailException.class)
+    @ResponseStatus(HttpStatus.CONFLICT)
+    public ErrorResponse handleDuplicateEmail(DuplicateEmailException e) {
+        return new ErrorResponse("Conflict", e.getMessage());
+    }
+
+    @ExceptionHandler(ValidationException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleValidation(ValidationException e) {
+        return new ErrorResponse("Bad Request", e.getMessage());
+    }
+
+    @ExceptionHandler(ForbiddenException.class)
+    @ResponseStatus(HttpStatus.FORBIDDEN)
+    public ErrorResponse handleForbidden(ForbiddenException e) {
+        return new ErrorResponse("Forbidden", e.getMessage());
+    }
+
+    @ExceptionHandler(MethodArgumentNotValidException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleMethodArgumentNotValid(MethodArgumentNotValidException e) {
+        String message = e.getBindingResult().getFieldErrors().stream()
+                .map(error -> error.getField() + ": " + error.getDefaultMessage())
+                .findFirst()
+                .orElse("Validation error");
+        return new ErrorResponse("Bad Request", message);
+    }
+
+    @ExceptionHandler(MissingRequestHeaderException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleMissingHeader(MissingRequestHeaderException e) {
+        return new ErrorResponse("Bad Request", "Отсутствует обязательный заголовок: " + e.getHeaderName());
+    }
+
+    @ExceptionHandler(IllegalArgumentException.class)
+    @ResponseStatus(HttpStatus.BAD_REQUEST)
+    public ErrorResponse handleIllegalArgument(IllegalArgumentException e) {
+        return new ErrorResponse("Bad Request", e.getMessage());
+    }
+
+    @ExceptionHandler(RuntimeException.class)
+    @ResponseStatus(HttpStatus.INTERNAL_SERVER_ERROR)
+    public ErrorResponse handleRuntimeException(RuntimeException e) {
+        return new ErrorResponse("Internal Server Error", "Произошла непредвиденная ошибка: " + e.getMessage());
+    }
+}package ru.practicum.shareit.exception;
+
+public class ErrorResponse {
+    private final String error;
+    private final String description;
+
+    public ErrorResponse(String error, String description) {
+        this.error = error;
+        this.description = description;
+    }
+
+    public String getError() {
+        return error;
+    }
+
+    public String getDescription() {
+        return description;
+    }
+}package ru.practicum.shareit.exception;
+
+public class NotFoundException extends RuntimeException {
+    public NotFoundException(String message) {
+        super(message);
+    }
+}

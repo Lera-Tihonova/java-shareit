@@ -13,7 +13,7 @@
 
 	<modules>
 		<module>gateway</module>
-		<module>server</module>
+		<module>server-app</module>
 	</modules>
 
 	<parent>

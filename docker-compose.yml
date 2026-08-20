@@ -12,7 +12,7 @@ services:
 
   server:
     build: ./server
-    image: shareit-server-final-v2
+    image: shareit-server-final-v2-$(date +%s)
     container_name: shareit-server
     ports:
       - "9090:9090"
@@ -29,7 +29,7 @@ services:
 
   gateway:
     build: ./gateway
-    image: shareit-gateway-final-v2
+    image: shareit-gateway-final-v2-$(date +%s)
     container_name: shareit-gateway
     ports:
       - "8080:8080"

@@ -1,8 +1,8 @@
 package ru.practicum.shareit.item;
 
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import ru.practicum.shareit.item.dto.*;
+
 import java.util.List;
 
 @RestController
@@ -29,7 +29,7 @@ public class ItemController {
 
     @PostMapping
     public ItemResponseDto create(
-            @Valid @RequestBody ItemCreateDto itemCreateDto,
+            @RequestBody ItemCreateDto itemCreateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
         return itemService.create(itemCreateDto, userId);
@@ -52,7 +52,7 @@ public class ItemController {
     @PostMapping("/{itemId}/comment")
     public CommentResponseDto addComment(
             @PathVariable Long itemId,
-            @Valid @RequestBody CommentCreateDto commentCreateDto,
+            @RequestBody CommentCreateDto commentCreateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
         return itemService.addComment(itemId, userId, commentCreateDto);

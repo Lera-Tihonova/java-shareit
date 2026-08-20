@@ -12,5 +12,5 @@ import lombok.Setter;
 public class ItemRequestDto {
     private Long id;
     private String description;
-    private String created; // Gateway получает строку, парсить будет Server
+    private String created;
 }

@@ -1,9 +1,9 @@
 package ru.practicum.shareit.booking;
 
-import jakarta.validation.Valid;
 import org.springframework.web.bind.annotation.*;
 import ru.practicum.shareit.booking.dto.BookingCreateDto;
 import ru.practicum.shareit.booking.dto.BookingResponseDto;
+
 import java.util.List;
 
 @RestController
@@ -17,7 +17,7 @@ public class BookingController {
 
     @PostMapping
     public BookingResponseDto create(
-            @Valid @RequestBody BookingCreateDto bookingCreateDto,
+            @RequestBody BookingCreateDto bookingCreateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
         return bookingService.create(bookingCreateDto, userId);

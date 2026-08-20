@@ -14,10 +14,10 @@ import lombok.Setter;
 public class UserDto {
     private Long id;
 
-    @NotBlank
+    @NotBlank(message = "Имя не может быть пустым")
     private String name;
 
-    @NotBlank
-    @Email
+    @NotBlank(message = "Email не может быть пустым")
+    @Email(message = "Некорректный формат email")
     private String email;
 }

@@ -1,5 +1,6 @@
 package ru.practicum.shareit.item;
 
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 import ru.practicum.shareit.item.dto.CommentCreateDto;
@@ -30,7 +31,7 @@ public class ItemController {
 
     @PostMapping
     public ResponseEntity<Object> create(
-            @RequestBody ItemCreateDto itemCreateDto,
+            @Valid @RequestBody ItemCreateDto itemCreateDto,
             @RequestHeader("X-Sharer-User-Id") Long userId
     ) {
         return itemClient.create(userId, itemCreateDto);

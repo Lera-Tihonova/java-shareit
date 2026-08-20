@@ -3,7 +3,6 @@ services:
   db:
     image: postgres:16.1
     container_name: postgres
-    restart: no
     ports:
       - "6541:5432"
     environment:
@@ -11,10 +10,9 @@ services:
       - POSTGRES_USER=postgres
       - POSTGRES_PASSWORD=postgres
 
-  shareit-server:
+  server:
     build: ./server
     container_name: shareit-server
-    restart: no
     ports:
       - "9090:9090"
     depends_on:
@@ -28,13 +26,12 @@ services:
       - SPRING_SQL_INIT_MODE=never
       - SERVER_PORT=9090
 
-  shareit-gateway:
+  gateway:
     build: ./gateway
     container_name: shareit-gateway
-    restart: no
     ports:
       - "8080:8080"
     depends_on:
-      - shareit-server
+      - server
     environment:
-      - SHAREIT_SERVER_URL=http://shareit-server:9090
+      - SHAREIT_SERVER_URL=http://server:9090
